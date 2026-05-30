@@ -16,6 +16,9 @@ Rules:
 - For code-edit workflows, prefer patch or edit-plan generation over uncontrolled direct edits.
 - Keep run artifacts for auditability.
 - Make workflows resumable when they process many items or long loops.
+- Set agent `cwd` deliberately. It defines the workspace the agent can naturally inspect and may determine which local instruction files it reads.
+- Prefer passing file paths and artifact paths instead of large file contents when the agent can read files.
+- Decide whether files modified by one agent can affect later workflow stages; sandbox or isolate when that would be unsafe.
 
 The MVP runs configured commands through the shell. Treat `.dynamic-workflows/agents.json` and workflow command strings as trusted local code.
 

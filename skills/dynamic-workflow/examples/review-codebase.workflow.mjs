@@ -4,8 +4,7 @@ import {
   globFiles,
   markdownTable,
   parseList,
-  pipeline,
-  readText
+  pipeline
 } from "../runtime/workflow-runtime.mjs";
 
 const wf = createWorkflow({
@@ -47,10 +46,10 @@ async function reviewFile(file) {
   try {
     await wf.setItemState(file, { status: "running" });
 
-    const content = await readText(file);
     const result = await agent("reviewer", {
       label: `review:${file}`,
-      prompt: reviewPrompt(file, content),
+      cwd: process.cwd(),
+      prompt: reviewPrompt(file),
       retries: 1
     });
 
@@ -65,10 +64,14 @@ async function reviewFile(file) {
   }
 }
 
-function reviewPrompt(file, content) {
+function reviewPrompt(file) {
   return `You are reviewing one source file for concrete defects.
 
 File: ${file}
+
+Context:
+- Your current working directory is the repository root.
+- Read the file from the path above.
 
 Rules:
 - Report only actionable bugs, behavioral regressions, security issues, data-loss risks, or missing tests that materially affect correctness.
@@ -89,11 +92,7 @@ Return shape:
     }
   ]
 }
-
-File content:
-<<<FILE
-${content}
-FILE`;
+`;
 }
 
 function buildReport(files) {

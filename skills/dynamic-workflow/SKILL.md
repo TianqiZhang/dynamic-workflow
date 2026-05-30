@@ -57,6 +57,15 @@ Read these before writing a workflow:
 
 Use examples as templates, not as a hidden framework.
 
+For complex workflows, plan context boundaries before coding:
+
+- Which directory each agent starts in with `cwd`.
+- Which local instruction files the agent may see from that directory.
+- Which global context belongs in files or artifacts.
+- Which values must be passed directly between stages.
+- Which files each agent may read or modify.
+- Whether agent-written files can affect later workflow execution, and whether to prevent or intentionally use that.
+
 ## Safety And State
 
 The default agent adapter inherits environment variables for local CLI compatibility. That can expose secrets to subprocesses. Set `inheritEnv: false` in `.dynamic-workflows/agents.json` when a workflow does not need the user's environment; use absolute command paths or provide `PATH` in `env` when environment inheritance is disabled.

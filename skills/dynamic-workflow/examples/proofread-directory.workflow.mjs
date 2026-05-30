@@ -39,7 +39,8 @@ async function processFile(file) {
     const original = await readText(file);
     const edit = await agent("editor", {
       label: `edit:${file}`,
-      prompt: editorPrompt(file, original),
+      cwd: process.cwd(),
+      prompt: editorPrompt(file),
       retries: 1
     });
 
@@ -55,9 +56,20 @@ async function processFile(file) {
     }
 
     const proposedDiff = diffText(original, edit.correctedText);
+    const proposalPath = path.join(
+      wf.runDir,
+      "artifacts",
+      "proposals",
+      `${artifactName(file)}.corrected.txt`
+    );
+    const proposedDiffPath = path.join(wf.runDir, "diffs", `${artifactName(file)}.proposed.diff`);
+    await writeText(proposalPath, edit.correctedText);
+    await writeText(proposedDiffPath, proposedDiff);
+
     const review = await agent("reviewer", {
       label: `review:${file}`,
-      prompt: reviewerPrompt(file, original, edit.correctedText, proposedDiff),
+      cwd: process.cwd(),
+      prompt: reviewerPrompt(file, proposalPath, proposedDiffPath),
       retries: 1
     });
 
@@ -89,10 +101,14 @@ async function processFile(file) {
   }
 }
 
-function editorPrompt(file, content) {
+function editorPrompt(file) {
   return `You are proofreading one Markdown or text file.
 
 File: ${file}
+
+Context:
+- Your current working directory is the repository root.
+- Read the file from the path above.
 
 Rules:
 - Fix spelling, grammar, punctuation, and obvious typos.
@@ -107,17 +123,20 @@ Return shape:
   "correctedText": "full corrected file text when changed, otherwise original text",
   "summary": "short summary"
 }
-
-File content:
-<<<FILE
-${content}
-FILE`;
+`;
 }
 
-function reviewerPrompt(file, original, corrected, diff) {
+function reviewerPrompt(file, proposalPath, proposedDiffPath) {
   return `You are reviewing a proposed proofreading edit.
 
 File: ${file}
+Proposed corrected text artifact: ${proposalPath}
+Proposed diff artifact: ${proposedDiffPath}
+
+Context:
+- Your current working directory is the repository root.
+- Read the original file from File.
+- Read the proposed corrected text and diff from the artifact paths above.
 
 Acceptance criteria:
 - Meaning is preserved.
@@ -132,21 +151,7 @@ Return shape:
   "reason": "short reason",
   "finalText": "full final file text if accepted"
 }
-
-Original:
-<<<ORIGINAL
-${original}
-ORIGINAL
-
-Proposed corrected text:
-<<<CORRECTED
-${corrected}
-CORRECTED
-
-Diff:
-<<<DIFF
-${diff}
-DIFF`;
+`;
 }
 
 function buildReport(files) {

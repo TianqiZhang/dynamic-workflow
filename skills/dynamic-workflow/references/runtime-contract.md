@@ -80,12 +80,15 @@ Item-state writes are serialized within one Node.js process so parallel workers 
 ```js
 const result = await agent("editor", {
   label: "edit:docs/a.md",
+  cwd: process.cwd(),
   prompt,
   retries: 1
 });
 ```
 
 The runtime loads `.dynamic-workflows/agents.json`, writes the prompt under `prompts/`, runs the configured command, captures stdout and stderr, writes artifacts, and returns either parsed JSON or stdout text based on the adapter's `output`.
+
+`cwd` is part of the agent context contract. It controls the subprocess working directory, which many CLI agents use as their workspace and source of local instructions. Set it explicitly when the agent should run in the repo root, a sandbox, or a narrow module directory.
 
 Supported adapter fields:
 

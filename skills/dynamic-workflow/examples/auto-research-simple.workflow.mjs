@@ -72,7 +72,7 @@ await wf.run(async () => {
         label: `research-proposal-${iteration}`,
         cwd: sandbox,
         timeoutMs: agentTimeoutMs,
-        prompt: proposalPrompt(iteration, targetFiles, await fileContext(sandbox, targetFiles), {
+        prompt: proposalPrompt(iteration, targetFiles, {
           evalCommand,
           bestMetric,
           higherIsBetter
@@ -130,13 +130,14 @@ await wf.run(async () => {
   await wf.writeReport(report(summary, evalCommand, targetFiles));
 });
 
-function proposalPrompt(iteration, targetFiles, files, context) {
+function proposalPrompt(iteration, targetFiles, context) {
   return `You are running a simple auto-research experiment loop.
 
 This is iteration ${iteration}. Auto Research is only one pattern built on Dynamic Workflow. Do not edit the workflow or strategy code.
 
 Sandbox rules:
 - Your current working directory is the sandbox.
+- Read the allowed target files from the sandbox paths listed below.
 - Propose and return one bounded replacement for one allowed target file.
 - Allowed target files: ${targetFiles.join(", ")}
 - Do not modify files directly. Return the new file text in JSON.
@@ -155,16 +156,7 @@ Return shape:
   "newText": "full replacement text for targetFile",
   "summary": "short summary"
 }
-
-Current files:
-${files}`;
-}
-
-async function fileContext(root, files) {
-  const chunks = await Promise.all(
-    files.map(async (file) => `<<<FILE ${file}\n${await readText(path.join(root, file))}\nFILE`)
-  );
-  return chunks.join("\n\n");
+`;
 }
 
 function validateProposal(proposal, targetFiles) {
