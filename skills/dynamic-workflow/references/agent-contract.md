@@ -90,11 +90,49 @@ Rules:
 
 Return shape:
 {
-  "changed": boolean,
-  "correctedText": string,
-  "summary": string
+  "correctedText": "full file text with corrections applied, or unchanged original",
+  "summary": "short summary"
 }
 ```
+
+In this pattern, `correctedText` is the payload. The workflow determines whether anything changed by comparing that payload against the original text.
+
+## Output Trust Boundaries
+
+Treat agent output fields differently based on what kind of contract they represent.
+
+Payload fields are the actual product of the agent stage. Examples:
+
+- `correctedText` from a proofreading stage
+- `findings` from a review stage
+- `plan` from a planning stage
+- `hypothesis` from a research stage
+- `reason` from a reviewer stage
+
+Self-report fields describe what the agent thinks it did. Examples:
+
+- `changed`
+- `filesChanged`
+- `count`
+- `testsPassed`
+- `confidence`
+
+Self-reports are useful for summaries and audit trails, but they can be wrong. The agent may hallucinate a count, misjudge whether text changed, list files it did not modify, or report a test result that the workflow has not actually run.
+
+Workflow-computed facts are facts the workflow can verify mechanically. Examples:
+
+- whether text changed
+- actual changed files
+- diffs
+- command exit codes
+- parsed metrics
+- report counts
+
+When the workflow can compute a fact deterministically, it should compute it instead of trusting an agent self-report. For example, compare `correctedText` against the original instead of trusting a `changed` flag, diff files before and after instead of trusting `filesChanged`, and run tests directly instead of trusting `testsPassed`.
+
+It is still fine for agents to return self-report fields. Keep them separate from workflow-computed fields when both are useful. For example, `auto-research-simple` records `filesChanged` from the workflow's own snapshot diff and `reportedFilesChanged` from the agent's JSON.
+
+Reserve unverified agent fields for things that are genuinely semantic or judgment-based, such as summaries, hypotheses, risk notes, severity, confidence, or review reasons.
 
 Agent subprocesses are configured in `.dynamic-workflows/agents.json`:
 

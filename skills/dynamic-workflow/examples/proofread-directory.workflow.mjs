@@ -44,15 +44,15 @@ async function processFile(file) {
       retries: 1
     });
 
-    if (!edit.changed) {
+    if (typeof edit.correctedText !== "string") {
+      throw new Error("editor returned no correctedText");
+    }
+
+    if (edit.correctedText === original) {
       return wf.markItemDone(file, {
         status: "unchanged",
         summary: edit.summary ?? "No changes"
       });
-    }
-
-    if (typeof edit.correctedText !== "string") {
-      throw new Error("editor returned changed=true without correctedText");
     }
 
     const proposedDiff = diffText(original, edit.correctedText);
@@ -119,9 +119,8 @@ Rules:
 
 Return shape:
 {
-  "changed": boolean,
-  "correctedText": "full corrected file text when changed, otherwise original text",
-  "summary": "short summary"
+  "correctedText": "full file text with corrections applied (or unchanged original if nothing to fix)",
+  "summary": "short summary of what was fixed, or 'No changes' if nothing to fix"
 }
 `;
 }
