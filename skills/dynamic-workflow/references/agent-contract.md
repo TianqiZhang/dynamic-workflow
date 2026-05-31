@@ -168,6 +168,23 @@ Agent subprocesses are configured in `.dynamic-workflows/agents.json`:
 }
 ```
 
+For Codex CLI subagents, `codex exec --json` writes JSONL events rather than a plain final JSON object. Configure that stream with `output: "codex-json"`:
+
+```json
+{
+  "agents": {
+    "editor": {
+      "command": "codex exec --ephemeral --skip-git-repo-check -s read-only --json -",
+      "input": "stdin",
+      "output": "codex-json",
+      "timeoutMs": 900000,
+      "inheritEnv": true,
+      "env": {}
+    }
+  }
+}
+```
+
 `inheritEnv: true` is convenient for local CLIs, but it may expose secrets to subprocesses. Set it to `false` unless the agent command needs the current environment. When inheritance is disabled, use absolute command paths or provide `PATH` in `env`.
 
 Do not put API keys, tokens, passwords, or unrelated secrets in prompts.

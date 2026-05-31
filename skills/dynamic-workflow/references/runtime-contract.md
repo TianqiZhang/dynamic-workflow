@@ -106,12 +106,14 @@ Supported adapter fields:
 - `command`: shell command string.
 - `jsonCommand`: optional shell command string used instead of `command` for structured output calls. Use this for CLI flags such as `--json` or `--output-format json` when the local agent supports them.
 - `input`: `stdin` or `file`.
-- `output`: `text` or `json`.
+- `output`: `text`, `json`, or `codex-json`.
 - `timeoutMs`: default command timeout.
 - `inheritEnv`: default `true`.
 - `env`: extra environment variables.
 
 For `input: "file"`, the command must include `{promptFile}`. The runtime replaces it with a shell-quoted absolute prompt-file path.
+
+Use `output: "codex-json"` for `codex exec --json` event streams. The runtime reads the last completed `agent_message` event and then applies normal schema parsing and validation when `schema` is provided.
 
 Supported schema keywords are intentionally small: `type`, `required`, `properties`, `items`, `enum`, `additionalProperties`, `nullable`, `minItems`, `maxItems`, `minLength`, and `maxLength`. `type` may be a string or an array of strings. This validates shape only; workflows should still compute deterministic facts such as changed files, diffs, command exit codes, and parsed metrics themselves.
 

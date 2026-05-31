@@ -148,7 +148,7 @@ export async function agent(agentName, options = {}) {
   if (!["stdin", "file"].includes(inputMode)) {
     throw new Error(`Agent '${agentName}' has unsupported input mode '${inputMode}'`);
   }
-  if (!["text", "json"].includes(outputMode)) {
+  if (!["text", "json", "codex-json"].includes(outputMode)) {
     throw new Error(`Agent '${agentName}' has unsupported output mode '${outputMode}'`);
   }
   if (adapter.jsonCommand !== undefined && typeof adapter.jsonCommand !== "string") {
@@ -234,9 +234,18 @@ export async function agent(agentName, options = {}) {
       }
 
       let value = result.stdout;
+      if (outputMode === "codex-json") {
+        try {
+          value = parseCodexExecJson(result.stdout);
+        } catch (error) {
+          throw transientError(`Agent '${agentName}' returned invalid Codex JSON events`, {
+            cause: serializeError(error)
+          });
+        }
+      }
       if (structuredOutput) {
         try {
-          value = parseJsonLoose(result.stdout);
+          value = parseJsonLoose(value);
         } catch (error) {
           throw transientError(`Agent '${agentName}' returned invalid JSON`, {
             cause: serializeError(error)
@@ -996,6 +1005,37 @@ function formatValue(value) {
     return String(value);
   }
   return text.length > 160 ? `${text.slice(0, 157)}...` : text;
+}
+
+function parseCodexExecJson(text) {
+  let finalMessage = null;
+
+  for (const line of String(text).split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("{")) {
+      continue;
+    }
+
+    let event;
+    try {
+      event = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+
+    if (
+      event.type === "item.completed" &&
+      event.item?.type === "agent_message" &&
+      typeof event.item.text === "string"
+    ) {
+      finalMessage = event.item.text;
+    }
+  }
+
+  if (finalMessage === null) {
+    throw new Error("No completed Codex agent_message event found");
+  }
+  return finalMessage;
 }
 
 function parseJsonLoose(text) {

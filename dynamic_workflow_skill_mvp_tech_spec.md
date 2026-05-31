@@ -210,6 +210,7 @@ Supported `output` values:
 
 - `text`
 - `json`
+- `codex-json`
 
 Optional adapter fields:
 
@@ -217,6 +218,8 @@ Optional adapter fields:
 - `timeoutMs`: default timeout for this agent.
 - `inheritEnv`: whether the subprocess inherits the current environment. Default `true` for local CLI compatibility.
 - `env`: extra environment variables to add or override.
+
+Use `output: "codex-json"` for `codex exec --json`, which emits JSONL events. The runtime should extract the last completed `agent_message` text before applying normal JSON parsing and schema validation.
 
 The skill must warn that inherited environment variables can expose secrets to agent subprocesses.
 
@@ -541,10 +544,11 @@ const result = await agent("editor", {
 8. Capture stdout and stderr.
 9. Write stdout to `outputs/<safe-label>.stdout.txt`.
 10. Write stderr to `errors/<safe-label>.stderr.txt`.
-11. If output mode is `json` or `schema` is provided, parse JSON from stdout.
-12. If JSON parsing fails, attempt to extract the first JSON object or array from stdout, choosing whichever valid JSON region appears first by position.
-13. If `schema` is provided, validate the parsed JSON against the runtime's lightweight schema subset.
-14. Return parsed JSON or raw text.
+11. If output mode is `codex-json`, extract the last completed Codex `agent_message` text from the JSONL event stream.
+12. If output mode is `json` or `schema` is provided, parse JSON from stdout or from the extracted Codex message text.
+13. If JSON parsing fails, attempt to extract the first JSON object or array from stdout, choosing whichever valid JSON region appears first by position.
+14. If `schema` is provided, validate the parsed JSON against the runtime's lightweight schema subset.
+15. Return parsed JSON or raw text.
 
 Supported schema keywords are `type`, `required`, `properties`, `items`, `enum`, `additionalProperties`, `nullable`, `minItems`, `maxItems`, `minLength`, and `maxLength`. This validates shape only. Workflow code must still compute deterministic facts such as actual changed files, diffs, command exit codes, and parsed metrics.
 
@@ -572,7 +576,7 @@ Retry only transient execution failures:
 
 - Non-zero exit code.
 - Timeout.
-- JSON parse or extraction failure when adapter `output` is `json` or `schema` is provided.
+- JSON parse or extraction failure when adapter `output` is `json`, `codex-json`, or `schema` is provided.
 - Schema validation failure when `agent(..., { schema })` is used.
 
 Do not retry configuration errors such as a missing agent name, unsupported adapter option, or missing `{promptFile}` placeholder for `input: "file"`.
