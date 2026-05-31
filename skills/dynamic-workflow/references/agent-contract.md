@@ -155,35 +155,32 @@ Agent subprocesses are configured in `.dynamic-workflows/agents.json`:
 ```json
 {
   "agents": {
-    "editor": {
-      "command": "claude -p",
-      "jsonCommand": "claude -p --output-format json",
-      "input": "stdin",
-      "output": "json",
-      "timeoutMs": 900000,
-      "inheritEnv": true,
-      "env": {}
-    }
+    "editor": { "preset": "claude" },
+    "reviewer": { "preset": "codex" },
+    "coder": { "preset": "pi", "timeoutMs": 1800000 }
   }
 }
 ```
 
-For Codex CLI subagents, `codex exec --json` writes JSONL events rather than a plain final JSON object. Configure that stream with `output: "codex-json"`:
+Built-in presets can be overridden per agent. For example, use a write-enabled Codex sandbox for a coder:
 
 ```json
 {
   "agents": {
-    "editor": {
-      "command": "codex exec --ephemeral --skip-git-repo-check -s read-only --json -",
-      "input": "stdin",
-      "output": "codex-json",
-      "timeoutMs": 900000,
-      "inheritEnv": true,
-      "env": {}
+    "coder": {
+      "preset": "codex",
+      "command": "codex exec --ephemeral --skip-git-repo-check -s workspace-write -",
+      "jsonCommand": "codex exec --ephemeral --skip-git-repo-check -s workspace-write --json -"
     }
   }
 }
 ```
+
+Preset behavior:
+
+- `claude` uses `claude -p`; structured calls use `--output-format json`, and schema calls use `--json-schema`.
+- `codex` uses `codex exec --ephemeral --skip-git-repo-check -s read-only -`; structured calls add `--json`, and the runtime extracts the final `agent_message` from the JSONL event stream.
+- `pi` uses `pi -p`; schema calls rely on the runtime's prompt contract and validation because Pi print mode returns plain text.
 
 `inheritEnv: true` is convenient for local CLIs, but it may expose secrets to subprocesses. Set it to `false` unless the agent command needs the current environment. When inheritance is disabled, use absolute command paths or provide `PATH` in `env`.
 

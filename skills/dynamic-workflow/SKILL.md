@@ -36,7 +36,7 @@ The workflow owns the loop. Agents own local reasoning or local edits. The curre
 ## Default Implementation Sequence
 
 1. Copy `runtime/workflow-runtime.mjs` into `.dynamic-workflows/runtime/workflow-runtime.mjs`.
-2. Create `.dynamic-workflows/agents.json` if missing and adapt the commands to the available local agent CLIs.
+2. Create `.dynamic-workflows/agents.json` if missing. Prefer built-in presets (`claude`, `codex`, `pi`) when they fit, and override commands only when local CLI flags differ.
 3. Pick the closest example from `examples/` and copy it to `.dynamic-workflows/workflows/<task-name>.workflow.mjs`.
 4. Make the workflow enumerate inputs deterministically.
 5. Make each agent prompt specify objective, input, allowed actions, forbidden actions, and acceptance criteria; put machine-readable return shape in the `schema` option.

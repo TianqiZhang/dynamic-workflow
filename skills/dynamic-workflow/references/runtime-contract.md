@@ -103,17 +103,35 @@ When `schema` is provided, the runtime treats the call as structured output even
 
 Supported adapter fields:
 
+- `preset`: built-in adapter preset: `claude`, `codex`, or `pi`.
 - `command`: shell command string.
 - `jsonCommand`: optional shell command string used instead of `command` for structured output calls. Use this for CLI flags such as `--json` or `--output-format json` when the local agent supports them.
+- `schemaCommand`: optional shell command string used instead of `jsonCommand` when `schema` is provided. Use `{schema}` to inject the shell-quoted schema JSON.
 - `input`: `stdin` or `file`.
-- `output`: `text`, `json`, or `codex-json`.
+- `output`: `text`, `json`, `codex-json`, or `claude-json`.
 - `timeoutMs`: default command timeout.
 - `inheritEnv`: default `true`.
 - `env`: extra environment variables.
 
+Built-in presets:
+
+```json
+{
+  "agents": {
+    "editor": { "preset": "claude" },
+    "reviewer": { "preset": "codex" },
+    "coder": { "preset": "pi", "timeoutMs": 1800000 }
+  }
+}
+```
+
+Preset defaults can be overridden by setting any adapter field on the same object. A string value is shorthand, so `"editor": "codex"` is equivalent to `"editor": { "preset": "codex" }`.
+
 For `input: "file"`, the command must include `{promptFile}`. The runtime replaces it with a shell-quoted absolute prompt-file path.
 
 Use `output: "codex-json"` for `codex exec --json` event streams. The runtime reads the last completed `agent_message` event and then applies normal schema parsing and validation when `schema` is provided.
+
+Use `output: "claude-json"` for `claude -p --output-format json`. The runtime returns `structured_output` when present, otherwise `result`.
 
 Supported schema keywords are intentionally small: `type`, `required`, `properties`, `items`, `enum`, `additionalProperties`, `nullable`, `minItems`, `maxItems`, `minLength`, and `maxLength`. `type` may be a string or an array of strings. This validates shape only; workflows should still compute deterministic facts such as changed files, diffs, command exit codes, and parsed metrics themselves.
 

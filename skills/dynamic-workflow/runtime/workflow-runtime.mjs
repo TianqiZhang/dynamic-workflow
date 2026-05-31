@@ -8,6 +8,35 @@ const DEFAULT_CONCURRENCY = 4;
 const DEFAULT_TIMEOUT_MS = 600000;
 const DEFAULT_AGENT_TIMEOUT_MS = 900000;
 const SUBDIRS = ["prompts", "outputs", "errors", "shell", "diffs", "artifacts"];
+const BUILTIN_AGENT_PRESETS = {
+  claude: {
+    command: "claude -p",
+    jsonCommand: "claude -p --output-format json",
+    schemaCommand: "claude -p --output-format json --json-schema {schema}",
+    input: "stdin",
+    output: "claude-json",
+    timeoutMs: DEFAULT_AGENT_TIMEOUT_MS,
+    inheritEnv: true,
+    env: {}
+  },
+  codex: {
+    command: "codex exec --ephemeral --skip-git-repo-check -s read-only -",
+    jsonCommand: "codex exec --ephemeral --skip-git-repo-check -s read-only --json -",
+    input: "stdin",
+    output: "codex-json",
+    timeoutMs: DEFAULT_AGENT_TIMEOUT_MS,
+    inheritEnv: true,
+    env: {}
+  },
+  pi: {
+    command: "pi -p",
+    input: "stdin",
+    output: "text",
+    timeoutMs: DEFAULT_AGENT_TIMEOUT_MS,
+    inheritEnv: true,
+    env: {}
+  }
+};
 
 let currentWorkflow = null;
 
@@ -131,7 +160,7 @@ export async function agent(agentName, options = {}) {
   }
 
   const config = await loadAgentsConfig();
-  const adapter = config.agents?.[agentName];
+  const adapter = resolveAgentAdapter(agentName, config.agents?.[agentName]);
   if (!adapter) {
     throw new Error(`Agent '${agentName}' is not configured in .dynamic-workflows/agents.json`);
   }
@@ -148,18 +177,25 @@ export async function agent(agentName, options = {}) {
   if (!["stdin", "file"].includes(inputMode)) {
     throw new Error(`Agent '${agentName}' has unsupported input mode '${inputMode}'`);
   }
-  if (!["text", "json", "codex-json"].includes(outputMode)) {
+  if (!["text", "json", "codex-json", "claude-json"].includes(outputMode)) {
     throw new Error(`Agent '${agentName}' has unsupported output mode '${outputMode}'`);
   }
   if (adapter.jsonCommand !== undefined && typeof adapter.jsonCommand !== "string") {
     throw new Error(`Agent '${agentName}' jsonCommand must be a string when provided`);
   }
+  if (adapter.schemaCommand !== undefined && typeof adapter.schemaCommand !== "string") {
+    throw new Error(`Agent '${agentName}' schemaCommand must be a string when provided`);
+  }
 
   const label = options.label ?? agentName;
   const artifactBase = artifactName(label);
-  const structuredOutput = outputMode === "json" || hasSchema;
+  const structuredOutput = outputMode !== "text" || hasSchema;
   const commandTemplate =
-    structuredOutput && adapter.jsonCommand ? adapter.jsonCommand : adapter.command;
+    hasSchema && adapter.schemaCommand
+      ? adapter.schemaCommand
+      : structuredOutput && adapter.jsonCommand
+        ? adapter.jsonCommand
+        : adapter.command;
 
   const timeoutMs = positiveInteger(options.timeoutMs ?? adapter.timeoutMs, DEFAULT_AGENT_TIMEOUT_MS);
   const retries = Math.max(0, positiveInteger(options.retries, 0));
@@ -179,7 +215,7 @@ export async function agent(agentName, options = {}) {
     const promptPath = path.join(workflow.runDir, "prompts", `${attemptBase}.md`);
     await writeText(promptPath, attemptPrompt);
 
-    let command = commandTemplate;
+    let command = formatAgentCommand(commandTemplate, options.schema);
     let stdin = "";
     if (inputMode === "stdin") {
       stdin = attemptPrompt;
@@ -242,8 +278,24 @@ export async function agent(agentName, options = {}) {
             cause: serializeError(error)
           });
         }
+      } else if (outputMode === "claude-json") {
+        try {
+          value = parseClaudeCodeJson(result.stdout);
+        } catch (error) {
+          throw transientError(`Agent '${agentName}' returned invalid Claude JSON output`, {
+            cause: serializeError(error)
+          });
+        }
+      } else if (outputMode === "json") {
+        try {
+          value = parseJsonLoose(result.stdout);
+        } catch (error) {
+          throw transientError(`Agent '${agentName}' returned invalid JSON`, {
+            cause: serializeError(error)
+          });
+        }
       }
-      if (structuredOutput) {
+      if (hasSchema && typeof value === "string") {
         try {
           value = parseJsonLoose(value);
         } catch (error) {
@@ -724,6 +776,56 @@ async function loadAgentsConfig() {
   return config;
 }
 
+function resolveAgentAdapter(agentName, configured) {
+  if (configured === undefined) {
+    return null;
+  }
+
+  if (typeof configured === "string") {
+    return builtinAgentPreset(agentName, configured);
+  }
+
+  if (!configured || typeof configured !== "object" || Array.isArray(configured)) {
+    throw new Error(`Agent '${agentName}' config must be an object or preset string`);
+  }
+
+  const presetName = configured.preset ?? configured.provider;
+  if (!presetName) {
+    return configured;
+  }
+
+  const preset = builtinAgentPreset(agentName, presetName);
+  const { preset: _preset, provider: _provider, ...overrides } = configured;
+  return {
+    ...preset,
+    ...overrides,
+    env: {
+      ...(preset.env ?? {}),
+      ...(overrides.env ?? {})
+    }
+  };
+}
+
+function builtinAgentPreset(agentName, presetName) {
+  const key = String(presetName).toLowerCase();
+  const preset = BUILTIN_AGENT_PRESETS[key];
+  if (!preset) {
+    throw new Error(
+      `Agent '${agentName}' references unknown preset '${presetName}'. Supported presets: ${Object.keys(
+        BUILTIN_AGENT_PRESETS
+      ).join(", ")}`
+    );
+  }
+  return structuredCloneFallback(preset);
+}
+
+function structuredCloneFallback(value) {
+  if (typeof structuredClone === "function") {
+    return structuredClone(value);
+  }
+  return JSON.parse(JSON.stringify(value));
+}
+
 function requireWorkflow(functionName) {
   if (!currentWorkflow) {
     throw new Error(`${functionName} must be called inside createWorkflow(...).run()`);
@@ -786,6 +888,17 @@ ${structuredOutput ? "Return corrected JSON only." : "Try again with the same ou
   }
 
   return `${sections.join("\n\n")}\n`;
+}
+
+function formatAgentCommand(commandTemplate, schema) {
+  let command = commandTemplate;
+  if (command.includes("{schema}")) {
+    if (schema === undefined) {
+      throw new Error("Agent command contains '{schema}' but no schema was provided");
+    }
+    command = command.replaceAll("{schema}", shellQuote(JSON.stringify(schema)));
+  }
+  return command;
 }
 
 function formatRetryFeedback(error) {
@@ -1036,6 +1149,20 @@ function parseCodexExecJson(text) {
     throw new Error("No completed Codex agent_message event found");
   }
   return finalMessage;
+}
+
+function parseClaudeCodeJson(text) {
+  const value = parseJsonLoose(text);
+  if (!isPlainObject(value)) {
+    return value;
+  }
+  if (Object.prototype.hasOwnProperty.call(value, "structured_output")) {
+    return value.structured_output;
+  }
+  if (Object.prototype.hasOwnProperty.call(value, "result")) {
+    return value.result;
+  }
+  return value;
 }
 
 function parseJsonLoose(text) {

@@ -168,38 +168,22 @@ The target repo should contain a configurable agent adapter file:
 ```json
 {
   "agents": {
-    "editor": {
-      "command": "claude -p",
-      "jsonCommand": "claude -p --output-format json",
-      "input": "stdin",
-      "output": "json",
-      "timeoutMs": 900000,
-      "inheritEnv": true,
-      "env": {}
-    },
-    "reviewer": {
-      "command": "claude -p",
-      "jsonCommand": "claude -p --output-format json",
-      "input": "stdin",
-      "output": "json",
-      "timeoutMs": 900000,
-      "inheritEnv": true,
-      "env": {}
-    },
-    "coder": {
-      "command": "claude -p",
-      "jsonCommand": "claude -p --output-format json",
-      "input": "stdin",
-      "output": "json",
-      "timeoutMs": 1800000,
-      "inheritEnv": true,
-      "env": {}
-    }
+    "editor": { "preset": "claude" },
+    "reviewer": { "preset": "codex" },
+    "coder": { "preset": "pi", "timeoutMs": 1800000 }
   }
 }
 ```
 
-The command values are examples. The skill must explain that the user or coding agent should adapt them to the locally available agent CLI.
+The preset values are examples. The skill must explain that the user or coding agent should adapt them to the locally available agent CLI.
+
+Supported built-in presets:
+
+- `claude`: `claude -p`; structured calls use `--output-format json`, schema calls use `--json-schema`.
+- `codex`: `codex exec --ephemeral --skip-git-repo-check -s read-only -`; structured calls add `--json`.
+- `pi`: `pi -p`; schema calls rely on prompt contract plus runtime validation.
+
+Preset defaults can be overridden per agent by setting normal adapter fields. A string value is shorthand: `"editor": "codex"` means `"editor": { "preset": "codex" }`.
 
 Supported `input` values:
 
@@ -211,15 +195,20 @@ Supported `output` values:
 - `text`
 - `json`
 - `codex-json`
+- `claude-json`
 
 Optional adapter fields:
 
+- `preset`: built-in adapter preset: `claude`, `codex`, or `pi`.
 - `jsonCommand`: optional shell command to use for structured output calls. Use this for local agent CLI JSON flags such as `--json` or `--output-format json`.
+- `schemaCommand`: optional shell command to use when `agent(..., { schema })` is used. Use `{schema}` to inject shell-quoted schema JSON.
 - `timeoutMs`: default timeout for this agent.
 - `inheritEnv`: whether the subprocess inherits the current environment. Default `true` for local CLI compatibility.
 - `env`: extra environment variables to add or override.
 
 Use `output: "codex-json"` for `codex exec --json`, which emits JSONL events. The runtime should extract the last completed `agent_message` text before applying normal JSON parsing and schema validation.
+
+Use `output: "claude-json"` for `claude -p --output-format json`. The runtime should return `structured_output` when present, otherwise `result`.
 
 The skill must warn that inherited environment variables can expose secrets to agent subprocesses.
 
@@ -538,17 +527,18 @@ const result = await agent("editor", {
 2. Find the named agent.
 3. If `schema` is provided, append the schema contract to the prompt and use structured output mode.
 4. Write the prompt to `prompts/<safe-label>.md`.
-5. Run `jsonCommand` when structured output mode is active and the adapter provides one; otherwise run `command`.
+5. Resolve any built-in preset, then run `schemaCommand` when `schema` is provided and the adapter provides one, otherwise run `jsonCommand` when structured output mode is active and available, otherwise run `command`.
 6. If `input` is `stdin`, pass prompt to stdin.
 7. If `input` is `file`, create a prompt file and replace `{promptFile}` in the command string. If the placeholder is missing, throw a configuration error.
 8. Capture stdout and stderr.
 9. Write stdout to `outputs/<safe-label>.stdout.txt`.
 10. Write stderr to `errors/<safe-label>.stderr.txt`.
 11. If output mode is `codex-json`, extract the last completed Codex `agent_message` text from the JSONL event stream.
-12. If output mode is `json` or `schema` is provided, parse JSON from stdout or from the extracted Codex message text.
-13. If JSON parsing fails, attempt to extract the first JSON object or array from stdout, choosing whichever valid JSON region appears first by position.
-14. If `schema` is provided, validate the parsed JSON against the runtime's lightweight schema subset.
-15. Return parsed JSON or raw text.
+12. If output mode is `claude-json`, parse Claude Code's JSON envelope and return `structured_output` when present, otherwise `result`.
+13. If output mode is `json` or `schema` is provided, parse JSON from stdout or from the extracted agent message text.
+14. If JSON parsing fails, attempt to extract the first JSON object or array from stdout, choosing whichever valid JSON region appears first by position.
+15. If `schema` is provided, validate the parsed JSON against the runtime's lightweight schema subset.
+16. Return parsed JSON or raw text.
 
 Supported schema keywords are `type`, `required`, `properties`, `items`, `enum`, `additionalProperties`, `nullable`, `minItems`, `maxItems`, `minLength`, and `maxLength`. This validates shape only. Workflow code must still compute deterministic facts such as actual changed files, diffs, command exit codes, and parsed metrics.
 
@@ -576,7 +566,7 @@ Retry only transient execution failures:
 
 - Non-zero exit code.
 - Timeout.
-- JSON parse or extraction failure when adapter `output` is `json`, `codex-json`, or `schema` is provided.
+- JSON parse or extraction failure when adapter `output` is `json`, `codex-json`, `claude-json`, or `schema` is provided.
 - Schema validation failure when `agent(..., { schema })` is used.
 
 Do not retry configuration errors such as a missing agent name, unsupported adapter option, or missing `{promptFile}` placeholder for `input: "file"`.
@@ -1257,6 +1247,7 @@ The MVP is complete when all of the following are true.
 - `agent()` can call a configured CLI command.
 - `agent()` writes prompt, stdout, and stderr artifacts.
 - `agent()` documents and respects adapter environment settings.
+- `agent()` supports built-in `claude`, `codex`, and `pi` presets that can be overridden by normal adapter fields.
 - `agent()` uses `jsonCommand` for structured output calls when configured.
 - `agent()` validates schema-backed JSON outputs and retries transient validation failures.
 - `agent()` retry behavior is defined and auditable through attempt artifacts.
@@ -1449,7 +1440,6 @@ Future features:
 - Human approval gates.
 - Strategy module hot-swapping.
 - Stronger sandboxing.
-- Agent provider presets.
 - TUI/monitoring UI.
 
 Do not implement these in MVP unless absolutely necessary.
