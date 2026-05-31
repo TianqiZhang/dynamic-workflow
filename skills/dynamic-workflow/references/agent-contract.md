@@ -33,6 +33,29 @@ Do not paste entire files into prompts by default. If the agent has file-read ca
 
 For review stages, prefer writing proposed edits, diffs, summaries, or metrics to artifacts and passing those artifact paths.
 
+## Output Or Edit Boundary
+
+Choose the stage boundary deliberately.
+
+Use structured output when the stage produces information:
+
+- findings for aggregation
+- labels, scores, or classifications
+- summaries
+- plans or hypotheses
+- extracted fields
+- proposals that another agent or human must review
+
+Use direct edits when the stage produces code or file changes:
+
+- coding tasks
+- refactors
+- optimization experiments
+- multi-file changes
+- research loops where later iterations should see accepted changes
+
+For direct-edit stages, the workflow should still control the loop. It should set `cwd`, state the allowed write paths, snapshot files before the agent runs, compute diffs afterward, run tests or evaluation commands, record artifacts, and restore rejected or failed changes when appropriate.
+
 ## Context Planning
 
 Before writing a complex workflow, decide:

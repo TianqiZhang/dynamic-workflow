@@ -22,7 +22,7 @@ Do not try to complete such tasks directly in the current conversation. Instead,
 2. Copy or create the minimal runtime at `.dynamic-workflows/runtime/workflow-runtime.mjs`.
 3. Create `.dynamic-workflows/agents.json` if missing.
 4. Write a task-specific workflow under `.dynamic-workflows/workflows/`.
-5. Use deterministic code for enumeration, batching, state, retries, writing files, shell commands, and report generation.
+5. Use deterministic code for enumeration, batching, state, retries, shell commands, report generation, and acceptance decisions.
 6. Use agents only for fuzzy judgment, editing, summarization, code changes, hypothesis generation, or review.
 7. All agent calls must have explicit input and output contracts.
 8. Prefer JSON output from agents when possible.
@@ -40,9 +40,11 @@ The workflow owns the loop. Agents own local reasoning or local edits. The curre
 3. Pick the closest example from `examples/` and copy it to `.dynamic-workflows/workflows/<task-name>.workflow.mjs`.
 4. Make the workflow enumerate inputs deterministically.
 5. Make each agent prompt specify objective, input, allowed actions, forbidden actions, required output shape, and acceptance criteria.
-6. Use `wf.isItemDone(key)` and `wf.markItemDone(key, result)` for resumable item workflows.
-7. Run with `node .dynamic-workflows/workflows/<task-name>.workflow.mjs`.
-8. Inspect `.dynamic-workflows/runs/<task-name>/report.md`, `events.jsonl`, and artifacts before summarizing.
+6. For information-producing stages, have agents return structured JSON for aggregation or later stages.
+7. For direct-edit stages, snapshot first, let the agent edit allowed files in `cwd`, then diff, verify, accept/reject, and restore if needed.
+8. Use `wf.isItemDone(key)` and `wf.markItemDone(key, result)` for resumable item workflows.
+9. Run with `node .dynamic-workflows/workflows/<task-name>.workflow.mjs`.
+10. Inspect `.dynamic-workflows/runs/<task-name>/report.md`, `events.jsonl`, and artifacts before summarizing.
 
 ## References
 

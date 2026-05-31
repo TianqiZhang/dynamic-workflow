@@ -4,8 +4,8 @@ Dynamic workflows can run many commands and touch many files. Keep the workflow 
 
 Rules:
 
-- Prefer workflows that read input, ask agents for structured output, and let deterministic code write results.
-- Do not let agents directly modify many files unless necessary.
+- Use structured agent output for aggregation, extraction, review, planning, and other information-producing stages.
+- Let agents directly edit files for coding, refactoring, optimization, and research stages when file changes are the stage output.
 - For text proofreading, have agents return corrected text; workflow code writes it.
 - For code changes, require tests before accepting.
 - For optimization, require objective metrics before accepting.
@@ -19,6 +19,7 @@ Rules:
 - Set agent `cwd` deliberately. It defines the workspace the agent can naturally inspect and may determine which local instruction files it reads.
 - Prefer passing file paths and artifact paths instead of large file contents when the agent can read files.
 - Decide whether files modified by one agent can affect later workflow stages; sandbox or isolate when that would be unsafe.
+- For direct-edit stages, snapshot first, diff after, verify, and restore rejected or failed changes when appropriate.
 
 The MVP runs configured commands through the shell. Treat `.dynamic-workflows/agents.json` and workflow command strings as trusted local code.
 

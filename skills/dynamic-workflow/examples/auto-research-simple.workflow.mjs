@@ -51,11 +51,11 @@ await wf.run(async () => {
     let record;
 
     try {
-      const proposal = await agent("coder", {
+      const editResult = await agent("coder", {
         label: `research-proposal-${iteration}`,
         cwd: researchCwd,
         timeoutMs: agentTimeoutMs,
-        prompt: proposalPrompt(iteration, targetFiles, {
+        prompt: editPrompt(iteration, targetFiles, {
           researchCwd,
           evalCommand,
           bestMetric,
@@ -63,11 +63,32 @@ await wf.run(async () => {
         })
       });
 
-      validateProposal(proposal, targetFiles);
-      const targetFile = proposal.targetFile;
-      const targetPath = path.join(researchCwd, targetFile);
-      const before = snapshot[targetFile] ?? "";
-      await writeText(targetPath, proposal.newText);
+      validateEditResult(editResult, targetFiles);
+      const after = await snapshotFiles(researchCwd, targetFiles);
+      const changedFiles = changedSnapshotFiles(snapshot, after);
+
+      for (const file of changedFiles) {
+        await writeText(
+          path.join(wf.runDir, "diffs", `iteration-${iteration}-${artifactName(file)}.diff`),
+          diffText(snapshot[file] ?? "", after[file] ?? "")
+        );
+      }
+
+      if (changedFiles.length === 0) {
+        record = {
+          iteration,
+          status: "rejected",
+          hypothesis: editResult.hypothesis ?? "",
+          filesChanged: [],
+          metric: null,
+          bestMetric,
+          improvementPct: null,
+          summary: editResult.summary ?? "Agent made no changes"
+        };
+        records.push(record);
+        await appendJsonl(path.join(wf.runDir, "artifacts", "experiments.jsonl"), record);
+        continue;
+      }
 
       const evaluation = await shell(evalCommand, {
         cwd: researchCwd,
@@ -79,11 +100,6 @@ await wf.run(async () => {
       const improvementPct = improvementPercent(bestMetric, metric, higherIsBetter);
       const accepted = evaluation.ok && improvementPct >= minImprovementPct;
 
-      await writeText(
-        path.join(wf.runDir, "diffs", `iteration-${iteration}-${artifactName(targetFile)}.diff`),
-        diffText(before, proposal.newText)
-      );
-
       if (accepted) {
         bestMetric = metric;
       } else {
@@ -93,12 +109,13 @@ await wf.run(async () => {
       record = {
         iteration,
         status: accepted ? "accepted" : "rejected",
-        hypothesis: proposal.hypothesis ?? "",
-        targetFile,
+        hypothesis: editResult.hypothesis ?? "",
+        filesChanged: changedFiles,
+        reportedFilesChanged: editResult.filesChanged ?? [],
         metric,
         bestMetric,
         improvementPct,
-        summary: proposal.summary ?? ""
+        summary: editResult.summary ?? ""
       };
     } catch (error) {
       await restoreSnapshot(researchCwd, snapshot);
@@ -114,7 +131,7 @@ await wf.run(async () => {
   await wf.writeReport(report(summary, evalCommand, targetFiles));
 });
 
-function proposalPrompt(iteration, targetFiles, context) {
+function editPrompt(iteration, targetFiles, context) {
   return `You are running a simple auto-research experiment loop.
 
 This is iteration ${iteration}. Auto Research is only one pattern built on Dynamic Workflow. Do not edit the workflow or strategy code.
@@ -122,13 +139,12 @@ This is iteration ${iteration}. Auto Research is only one pattern built on Dynam
 Workspace rules:
 - Your current working directory is: ${context.researchCwd}
 - You may inspect the repository or folder context from this working directory.
-- Read the allowed target files from the paths listed below.
-- Propose and return one bounded replacement for one allowed target file.
+- Make one bounded direct edit to the allowed target files listed below.
 - Allowed target files: ${targetFiles.join(", ")}
-- Do not modify files directly in this MVP example. Return the proposed full replacement text in JSON; the workflow will write accepted candidates.
+- Do not modify files outside the allowed target files.
 - Do not edit workflow/runtime files.
 - Do not commit changes.
-- Return JSON only.
+- After editing files, return JSON only.
 
 Evaluation:
 - Command: ${context.evalCommand}
@@ -138,22 +154,24 @@ Evaluation:
 Return shape:
 {
   "hypothesis": "why this change may improve the metric",
-  "targetFile": "one allowed target file",
-  "newText": "full replacement text for targetFile",
-  "summary": "short summary"
+  "filesChanged": ["allowed target file path"],
+  "summary": "short summary",
+  "risk": "low|medium|high"
 }
 `;
 }
 
-function validateProposal(proposal, targetFiles) {
-  if (!proposal || typeof proposal !== "object") {
-    throw new Error("proposal must be a JSON object");
+function validateEditResult(result, targetFiles) {
+  if (!result || typeof result !== "object") {
+    throw new Error("agent result must be a JSON object");
   }
-  if (!targetFiles.includes(proposal.targetFile)) {
-    throw new Error(`proposal targetFile is not allowed: ${proposal.targetFile}`);
+  if (result.filesChanged !== undefined && !Array.isArray(result.filesChanged)) {
+    throw new Error("agent result filesChanged must be an array when provided");
   }
-  if (typeof proposal.newText !== "string") {
-    throw new Error("proposal newText must be a string");
+  for (const file of result.filesChanged ?? []) {
+    if (!targetFiles.includes(file)) {
+      throw new Error(`agent reported a file outside the allowed target files: ${file}`);
+    }
   }
 }
 
@@ -171,6 +189,11 @@ async function snapshotFiles(root, files) {
     })
   );
   return Object.fromEntries(entries);
+}
+
+function changedSnapshotFiles(before, after) {
+  const files = new Set([...Object.keys(before), ...Object.keys(after)]);
+  return [...files].filter((file) => before[file] !== after[file]).sort();
 }
 
 async function restoreSnapshot(root, snapshot) {
@@ -228,13 +251,13 @@ function report(summary, evalCommand, targetFiles) {
 ## Experiments
 
 ${markdownTable(
-  ["Iteration", "Status", "Metric", "Improvement", "Target", "Summary"],
+  ["Iteration", "Status", "Metric", "Improvement", "Files Changed", "Summary"],
   summary.iterations.map((record) => [
     record.iteration,
     record.status,
     record.metric ?? "",
     formatPercent(record.improvementPct),
-    record.targetFile ?? "",
+    (record.filesChanged ?? []).join(", "),
     record.summary ?? record.error ?? ""
   ])
 )}
