@@ -4,7 +4,7 @@ Dynamic workflows can run many commands and touch many files. Keep the workflow 
 
 Rules:
 
-- Use structured agent output for aggregation, extraction, review, planning, and other information-producing stages.
+- Use schema-backed structured agent output for aggregation, extraction, review, planning, and other information-producing stages.
 - Let agents directly edit files for coding, refactoring, optimization, and research stages when file changes are the stage output.
 - For text proofreading, have agents return corrected text; workflow code writes it.
 - For code changes, require tests before accepting.

@@ -18,6 +18,36 @@ const wf = createWorkflow({
   resume: process.env.DW_RESUME !== "false"
 });
 
+const editorSchema = {
+  type: "object",
+  required: ["correctedText", "summary"],
+  properties: {
+    correctedText: {
+      type: "string",
+      description: "Full file text with corrections applied, or the unchanged original text."
+    },
+    summary: {
+      type: "string",
+      description: "Short summary of fixes, or 'No changes' when unchanged."
+    }
+  },
+  additionalProperties: false
+};
+
+const reviewerSchema = {
+  type: "object",
+  required: ["accept", "reason"],
+  properties: {
+    accept: { type: "boolean" },
+    reason: { type: "string" },
+    finalText: {
+      type: "string",
+      description: "Full final file text when accepted and the proposal needs adjustment."
+    }
+  },
+  additionalProperties: false
+};
+
 await wf.run(async () => {
   const root = process.env.DW_PROOFREAD_ROOT ?? "docs";
   const extensions = parseList(process.env.DW_PROOFREAD_EXTENSIONS, [".md", ".txt"]);
@@ -41,6 +71,7 @@ async function processFile(file) {
       label: `edit:${file}`,
       cwd: process.cwd(),
       prompt: editorPrompt(file),
+      schema: editorSchema,
       retries: 1
     });
 
@@ -70,6 +101,7 @@ async function processFile(file) {
       label: `review:${file}`,
       cwd: process.cwd(),
       prompt: reviewerPrompt(file, proposalPath, proposedDiffPath),
+      schema: reviewerSchema,
       retries: 1
     });
 
@@ -115,13 +147,7 @@ Rules:
 - Preserve meaning, tone, headings, links, front matter, and Markdown structure.
 - Do not modify code blocks or command examples.
 - Do not rewrite style unnecessarily.
-- Return JSON only.
-
-Return shape:
-{
-  "correctedText": "full file text with corrections applied (or unchanged original if nothing to fix)",
-  "summary": "short summary of what was fixed, or 'No changes' if nothing to fix"
-}
+- Return the corrected full file text and a short summary.
 `;
 }
 
@@ -142,14 +168,7 @@ Acceptance criteria:
 - Markdown structure is preserved.
 - Code blocks and command examples are not rewritten.
 - The edit fixes real proofreading issues and avoids unnecessary style churn.
-- Return JSON only.
-
-Return shape:
-{
-  "accept": boolean,
-  "reason": "short reason",
-  "finalText": "full final file text if accepted"
-}
+- Return whether to accept, the reason, and final text if accepted.
 `;
 }
 

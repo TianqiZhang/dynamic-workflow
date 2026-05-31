@@ -55,6 +55,7 @@ await wf.run(async () => {
         label: `research-proposal-${iteration}`,
         cwd: researchCwd,
         timeoutMs: agentTimeoutMs,
+        schema: editResultSchema(targetFiles),
         prompt: editPrompt(iteration, targetFiles, {
           researchCwd,
           evalCommand,
@@ -144,21 +145,32 @@ Workspace rules:
 - Do not modify files outside the allowed target files.
 - Do not edit workflow/runtime files.
 - Do not commit changes.
-- After editing files, return JSON only.
+- After editing files, return the requested structured result.
 
 Evaluation:
 - Command: ${context.evalCommand}
 - Current best metric: ${context.bestMetric}
 - Higher is better: ${context.higherIsBetter}
 
-Return shape:
-{
-  "hypothesis": "why this change may improve the metric",
-  "filesChanged": ["allowed target file path"],
-  "summary": "short summary",
-  "risk": "low|medium|high"
-}
+Return your hypothesis, the files you believe you changed, a short summary, and risk.
 `;
+}
+
+function editResultSchema(targetFiles) {
+  return {
+    type: "object",
+    required: ["hypothesis", "filesChanged", "summary", "risk"],
+    properties: {
+      hypothesis: { type: "string" },
+      filesChanged: {
+        type: "array",
+        items: { type: "string", enum: targetFiles }
+      },
+      summary: { type: "string" },
+      risk: { type: "string", enum: ["low", "medium", "high"] }
+    },
+    additionalProperties: false
+  };
 }
 
 function validateEditResult(result, targetFiles) {

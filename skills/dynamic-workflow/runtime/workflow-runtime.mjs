@@ -141,46 +141,66 @@ export async function agent(agentName, options = {}) {
 
   const inputMode = adapter.input ?? "stdin";
   const outputMode = adapter.output ?? "text";
+  const hasSchema = options.schema !== undefined;
+  if (hasSchema && !isSchemaObject(options.schema)) {
+    throw new Error("agent schema must be a JSON Schema-like object");
+  }
   if (!["stdin", "file"].includes(inputMode)) {
     throw new Error(`Agent '${agentName}' has unsupported input mode '${inputMode}'`);
   }
   if (!["text", "json"].includes(outputMode)) {
     throw new Error(`Agent '${agentName}' has unsupported output mode '${outputMode}'`);
   }
+  if (adapter.jsonCommand !== undefined && typeof adapter.jsonCommand !== "string") {
+    throw new Error(`Agent '${agentName}' jsonCommand must be a string when provided`);
+  }
 
   const label = options.label ?? agentName;
   const artifactBase = artifactName(label);
-  const promptPath = path.join(workflow.runDir, "prompts", `${artifactBase}.md`);
-  await writeText(promptPath, options.prompt);
-
-  let command = adapter.command;
-  let stdin = "";
-  if (inputMode === "stdin") {
-    stdin = options.prompt;
-  } else {
-    if (!command.includes("{promptFile}")) {
-      throw new Error(
-        `Agent '${agentName}' uses input:file but its command is missing '{promptFile}'`
-      );
-    }
-    command = command.replaceAll("{promptFile}", shellQuote(path.resolve(promptPath)));
-  }
+  const structuredOutput = outputMode === "json" || hasSchema;
+  const commandTemplate =
+    structuredOutput && adapter.jsonCommand ? adapter.jsonCommand : adapter.command;
 
   const timeoutMs = positiveInteger(options.timeoutMs ?? adapter.timeoutMs, DEFAULT_AGENT_TIMEOUT_MS);
   const retries = Math.max(0, positiveInteger(options.retries, 0));
   const maxAttempts = retries + 1;
   let lastError = null;
+  let retryFeedback = "";
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const attemptBase =
       maxAttempts > 1 ? `${artifactBase}.attempt-${attempt}` : artifactBase;
+    const attemptPrompt = formatAgentPrompt(
+      options.prompt,
+      options.schema,
+      retryFeedback,
+      structuredOutput
+    );
+    const promptPath = path.join(workflow.runDir, "prompts", `${attemptBase}.md`);
+    await writeText(promptPath, attemptPrompt);
+
+    let command = commandTemplate;
+    let stdin = "";
+    if (inputMode === "stdin") {
+      stdin = attemptPrompt;
+    } else {
+      if (!command.includes("{promptFile}")) {
+        throw new Error(
+          `Agent '${agentName}' uses input:file but its command is missing '{promptFile}'`
+        );
+      }
+      command = command.replaceAll("{promptFile}", shellQuote(path.resolve(promptPath)));
+    }
+
     const started = Date.now();
 
     await workflow.event("agent_started", {
       agent: agentName,
       label,
       attempt,
-      cwd: path.resolve(options.cwd ?? process.cwd())
+      cwd: path.resolve(options.cwd ?? process.cwd()),
+      structuredOutput,
+      schema: hasSchema
     });
 
     try {
@@ -214,12 +234,20 @@ export async function agent(agentName, options = {}) {
       }
 
       let value = result.stdout;
-      if (outputMode === "json") {
+      if (structuredOutput) {
         try {
           value = parseJsonLoose(result.stdout);
         } catch (error) {
           throw transientError(`Agent '${agentName}' returned invalid JSON`, {
             cause: serializeError(error)
+          });
+        }
+      }
+      if (hasSchema) {
+        const validationErrors = validateSchema(value, options.schema);
+        if (validationErrors.length > 0) {
+          throw transientError(`Agent '${agentName}' returned JSON that failed schema validation`, {
+            validationErrors
           });
         }
       }
@@ -245,6 +273,7 @@ export async function agent(agentName, options = {}) {
         throw error;
       }
 
+      retryFeedback = formatRetryFeedback(error);
       await workflow.event("agent_retrying", {
         agent: agentName,
         label,
@@ -565,6 +594,12 @@ export function markdownTable(headers, rows) {
   ].join("\n");
 }
 
+export function validateSchema(value, schema) {
+  const errors = [];
+  validateSchemaValue(value, schema, "$", errors);
+  return errors;
+}
+
 export function safeName(name) {
   const cleaned = String(name ?? "")
     .trim()
@@ -718,6 +753,249 @@ function enqueueItemStateWrite(workflow, mutate) {
   });
   workflow._stateWriteChain = write.catch(() => {});
   return write;
+}
+
+function formatAgentPrompt(prompt, schema, retryFeedback, structuredOutput) {
+  const sections = [String(prompt).trimEnd()];
+
+  if (schema !== undefined) {
+    sections.push(`Structured output contract:
+- Return a single JSON value only.
+- Do not wrap the JSON in Markdown or prose.
+- The JSON value must satisfy this schema:
+
+\`\`\`json
+${JSON.stringify(schema, null, 2)}
+\`\`\``);
+  }
+
+  if (retryFeedback) {
+    sections.push(`Previous attempt failed:
+${retryFeedback}
+
+${structuredOutput ? "Return corrected JSON only." : "Try again with the same output contract."}`);
+  }
+
+  return `${sections.join("\n\n")}\n`;
+}
+
+function formatRetryFeedback(error) {
+  const validationErrors = error?.data?.validationErrors;
+  if (Array.isArray(validationErrors) && validationErrors.length > 0) {
+    return [
+      "The previous JSON output failed schema validation:",
+      ...validationErrors.map((message) => `- ${message}`)
+    ].join("\n");
+  }
+  if (error?.message) {
+    return error.message;
+  }
+  return errorToString(error);
+}
+
+function isSchemaObject(schema) {
+  return Boolean(schema && typeof schema === "object" && !Array.isArray(schema));
+}
+
+function validateSchemaValue(value, schema, location, errors) {
+  if (!isSchemaObject(schema)) {
+    errors.push(`${location}: schema must be an object`);
+    return;
+  }
+
+  if (schema.nullable === true && value === null) {
+    return;
+  }
+
+  if (schema.enum !== undefined) {
+    if (!Array.isArray(schema.enum)) {
+      errors.push(`${location}: schema enum must be an array`);
+    } else if (!schema.enum.some((entry) => jsonEqual(entry, value))) {
+      errors.push(
+        `${location}: expected one of ${formatExpected(schema.enum)}, got ${formatValue(value)}`
+      );
+      return;
+    }
+  }
+
+  if (schema.type !== undefined) {
+    const types = Array.isArray(schema.type) ? schema.type : [schema.type];
+    if (types.some((type) => typeof type !== "string")) {
+      errors.push(`${location}: schema type must be a string or array of strings`);
+      return;
+    }
+    if (!types.some((type) => matchesJsonType(value, type))) {
+      errors.push(`${location}: expected ${types.join("|")}, got ${jsonType(value)}`);
+      return;
+    }
+  }
+
+  const objectLike =
+    typeIncludes(schema, "object") ||
+    schema.properties !== undefined ||
+    schema.required !== undefined ||
+    schema.additionalProperties !== undefined;
+  if (objectLike && (schema.type === undefined || isPlainObject(value))) {
+    validateObjectSchema(value, schema, location, errors);
+  }
+
+  const arrayLike =
+    typeIncludes(schema, "array") ||
+    schema.items !== undefined ||
+    schema.minItems !== undefined ||
+    schema.maxItems !== undefined;
+  if (arrayLike && (schema.type === undefined || Array.isArray(value))) {
+    validateArraySchema(value, schema, location, errors);
+  }
+
+  if (typeof value === "string") {
+    if (schema.minLength !== undefined && value.length < schema.minLength) {
+      errors.push(`${location}: expected string length >= ${schema.minLength}`);
+    }
+    if (schema.maxLength !== undefined && value.length > schema.maxLength) {
+      errors.push(`${location}: expected string length <= ${schema.maxLength}`);
+    }
+  }
+}
+
+function validateObjectSchema(value, schema, location, errors) {
+  if (!isPlainObject(value)) {
+    errors.push(`${location}: expected object, got ${jsonType(value)}`);
+    return;
+  }
+
+  const properties = schema.properties ?? {};
+  if (!isPlainObject(properties)) {
+    errors.push(`${location}: schema properties must be an object`);
+    return;
+  }
+
+  const required = schema.required ?? [];
+  if (!Array.isArray(required)) {
+    errors.push(`${location}: schema required must be an array`);
+    return;
+  }
+  for (const key of required) {
+    if (typeof key !== "string") {
+      errors.push(`${location}: schema required entries must be strings`);
+      continue;
+    }
+    if (!Object.prototype.hasOwnProperty.call(value, key)) {
+      errors.push(`${location}.${key}: missing required property`);
+    }
+  }
+
+  for (const [key, childSchema] of Object.entries(properties)) {
+    if (Object.prototype.hasOwnProperty.call(value, key)) {
+      validateSchemaValue(value[key], childSchema, `${location}.${key}`, errors);
+    }
+  }
+
+  if (schema.additionalProperties === false) {
+    const known = new Set(Object.keys(properties));
+    for (const key of Object.keys(value)) {
+      if (!known.has(key)) {
+        errors.push(`${location}.${key}: unexpected property`);
+      }
+    }
+  } else if (isSchemaObject(schema.additionalProperties)) {
+    const known = new Set(Object.keys(properties));
+    for (const key of Object.keys(value)) {
+      if (!known.has(key)) {
+        validateSchemaValue(
+          value[key],
+          schema.additionalProperties,
+          `${location}.${key}`,
+          errors
+        );
+      }
+    }
+  }
+}
+
+function validateArraySchema(value, schema, location, errors) {
+  if (!Array.isArray(value)) {
+    errors.push(`${location}: expected array, got ${jsonType(value)}`);
+    return;
+  }
+
+  if (schema.minItems !== undefined && value.length < schema.minItems) {
+    errors.push(`${location}: expected at least ${schema.minItems} items`);
+  }
+  if (schema.maxItems !== undefined && value.length > schema.maxItems) {
+    errors.push(`${location}: expected at most ${schema.maxItems} items`);
+  }
+  if (schema.items !== undefined) {
+    if (!isSchemaObject(schema.items)) {
+      errors.push(`${location}: schema items must be an object`);
+      return;
+    }
+    value.forEach((item, index) => {
+      validateSchemaValue(item, schema.items, `${location}[${index}]`, errors);
+    });
+  }
+}
+
+function typeIncludes(schema, type) {
+  if (schema.type === undefined) {
+    return false;
+  }
+  return (Array.isArray(schema.type) ? schema.type : [schema.type]).includes(type);
+}
+
+function matchesJsonType(value, type) {
+  switch (type) {
+    case "object":
+      return isPlainObject(value);
+    case "array":
+      return Array.isArray(value);
+    case "string":
+      return typeof value === "string";
+    case "number":
+      return typeof value === "number" && Number.isFinite(value);
+    case "integer":
+      return Number.isInteger(value);
+    case "boolean":
+      return typeof value === "boolean";
+    case "null":
+      return value === null;
+    default:
+      return false;
+  }
+}
+
+function isPlainObject(value) {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function jsonType(value) {
+  if (value === null) {
+    return "null";
+  }
+  if (Array.isArray(value)) {
+    return "array";
+  }
+  if (Number.isInteger(value)) {
+    return "integer";
+  }
+  return typeof value;
+}
+
+function jsonEqual(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function formatExpected(value) {
+  const text = JSON.stringify(value);
+  return text.length > 160 ? `${text.slice(0, 157)}...` : text;
+}
+
+function formatValue(value) {
+  const text = JSON.stringify(value);
+  if (text === undefined) {
+    return String(value);
+  }
+  return text.length > 160 ? `${text.slice(0, 157)}...` : text;
 }
 
 function parseJsonLoose(text) {

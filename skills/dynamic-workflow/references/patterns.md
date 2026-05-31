@@ -26,7 +26,7 @@ Use for small experiment loops. An agent proposes a hypothesis, directly edits a
 
 ## Structured Output Pattern
 
-Use when the agent stage produces information rather than file changes. Examples include audit findings, summaries, classifications, extracted fields, plans, hypotheses, or review decisions. The workflow aggregates the JSON outputs or passes them to later agents.
+Use when the agent stage produces information rather than file changes. Examples include audit findings, summaries, classifications, extracted fields, plans, hypotheses, or review decisions. The workflow gives the agent a schema, aggregates the validated JSON outputs, or passes them to later agents.
 
 ## Direct Edit Pattern
 

@@ -82,17 +82,29 @@ const result = await agent("editor", {
   label: "edit:docs/a.md",
   cwd: process.cwd(),
   prompt,
+  schema: {
+    type: "object",
+    required: ["correctedText", "summary"],
+    properties: {
+      correctedText: { type: "string" },
+      summary: { type: "string" }
+    },
+    additionalProperties: false
+  },
   retries: 1
 });
 ```
 
-The runtime loads `.dynamic-workflows/agents.json`, writes the prompt under `prompts/`, runs the configured command, captures stdout and stderr, writes artifacts, and returns either parsed JSON or stdout text based on the adapter's `output`.
+The runtime loads `.dynamic-workflows/agents.json`, writes the prompt under `prompts/`, runs the configured command, captures stdout and stderr, writes artifacts, and returns either parsed JSON or stdout text.
+
+When `schema` is provided, the runtime treats the call as structured output even if the adapter's default `output` is `text`: it appends the schema to the prompt, parses JSON from stdout, validates the result, and retries transient parse or validation failures according to `retries`.
 
 `cwd` is part of the agent context contract. It controls the subprocess working directory, which many CLI agents use as their workspace and source of local instructions. Set it explicitly when the agent should run in the repo root, a sandbox, or a narrow module directory.
 
 Supported adapter fields:
 
 - `command`: shell command string.
+- `jsonCommand`: optional shell command string used instead of `command` for structured output calls. Use this for CLI flags such as `--json` or `--output-format json` when the local agent supports them.
 - `input`: `stdin` or `file`.
 - `output`: `text` or `json`.
 - `timeoutMs`: default command timeout.
@@ -100,6 +112,8 @@ Supported adapter fields:
 - `env`: extra environment variables.
 
 For `input: "file"`, the command must include `{promptFile}`. The runtime replaces it with a shell-quoted absolute prompt-file path.
+
+Supported schema keywords are intentionally small: `type`, `required`, `properties`, `items`, `enum`, `additionalProperties`, `nullable`, `minItems`, `maxItems`, `minLength`, and `maxLength`. `type` may be a string or an array of strings. This validates shape only; workflows should still compute deterministic facts such as changed files, diffs, command exit codes, and parsed metrics themselves.
 
 The MVP runs command strings through the shell. Treat adapter commands as trusted local configuration, not untrusted user input.
 
@@ -161,6 +175,7 @@ The runtime exports:
 - `safeName(name)`
 - `artifactName(label)`
 - `diffText(before, after)`
+- `validateSchema(value, schema)` - return schema validation errors for the runtime's lightweight schema subset
 - `parseList(envValue, fallback)` - split comma-separated env strings
 - `parseBoolean(envValue, fallback)` - accept `1`/`true`/`yes`/`y`
 - `formatPercent(value, { whenNullish })` - format numbers as `12.34%`

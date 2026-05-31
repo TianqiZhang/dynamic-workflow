@@ -7,7 +7,7 @@ Every agent prompt should include:
 3. Allowed actions.
 4. Forbidden actions.
 5. Required output format.
-6. JSON shape when possible.
+6. Semantic payload fields expected by the workflow.
 7. Acceptance criteria.
 
 Keep the prompt local. Give the agent only the item or context needed for this stage, not the whole task history. Prefer passing stable paths and artifact names instead of large file contents when the agent CLI can read files from its working directory.
@@ -67,7 +67,9 @@ Before writing a complex workflow, decide:
 - Whether files modified by one agent can affect later workflow code or agent behavior.
 - Whether that effect should be avoided through sandboxing or intentionally used as part of the workflow.
 
-Prefer JSON output. The runtime can parse exact JSON, fenced JSON, or the first valid object or array in stdout. It does not validate JSON Schema in the MVP, so the prompt must state the required shape clearly.
+Prefer schema-backed JSON output. Put the machine-readable shape in `agent(..., { schema })`; keep the prompt focused on objective, context, allowed actions, forbidden actions, and acceptance criteria. When a schema is provided, the runtime asks for JSON, parses exact JSON or common wrapped JSON, validates the result, and retries parse or validation failures when `retries` allows it.
+
+Schemas are shape contracts, not truth contracts. They can require a `filesChanged` array to exist, but they cannot prove those files were actually modified. Keep using workflow-computed facts for deterministic claims.
 
 Example:
 
@@ -86,16 +88,30 @@ Rules:
 - Preserve Markdown structure.
 - Do not modify code blocks.
 - Do not rewrite style unnecessarily.
-- Return JSON only.
-
-Return shape:
-{
-  "correctedText": "full file text with corrections applied, or unchanged original",
-  "summary": "short summary"
-}
+- Return the corrected full file text and a short summary.
 ```
 
-In this pattern, `correctedText` is the payload. The workflow determines whether anything changed by comparing that payload against the original text.
+And call the agent with a schema:
+
+```js
+const edit = await agent("editor", {
+  label: "edit:docs/a.md",
+  cwd: process.cwd(),
+  prompt,
+  schema: {
+    type: "object",
+    required: ["correctedText", "summary"],
+    properties: {
+      correctedText: { type: "string" },
+      summary: { type: "string" }
+    },
+    additionalProperties: false
+  },
+  retries: 1
+});
+```
+
+In this pattern, `correctedText` is the payload. The schema validates that the field exists and is a string. The workflow still determines whether anything changed by comparing that payload against the original text.
 
 ## Output Trust Boundaries
 
@@ -140,7 +156,8 @@ Agent subprocesses are configured in `.dynamic-workflows/agents.json`:
 {
   "agents": {
     "editor": {
-      "command": "claude -p --output-format json",
+      "command": "claude -p",
+      "jsonCommand": "claude -p --output-format json",
       "input": "stdin",
       "output": "json",
       "timeoutMs": 900000,

@@ -13,6 +13,30 @@ const wf = createWorkflow({
   resume: process.env.DW_RESUME !== "false"
 });
 
+const reviewSchema = {
+  type: "object",
+  required: ["findings"],
+  properties: {
+    findings: {
+      type: "array",
+      items: {
+        type: "object",
+        required: ["severity", "file", "title", "description", "suggestion"],
+        properties: {
+          severity: { type: "string", enum: ["low", "medium", "high"] },
+          file: { type: "string" },
+          line: { type: ["integer", "null"] },
+          title: { type: "string" },
+          description: { type: "string" },
+          suggestion: { type: "string" }
+        },
+        additionalProperties: false
+      }
+    }
+  },
+  additionalProperties: false
+};
+
 await wf.run(async () => {
   const root = process.env.DW_REVIEW_ROOT ?? ".";
   const extensions = parseList(process.env.DW_REVIEW_EXTENSIONS, [
@@ -50,6 +74,7 @@ async function reviewFile(file) {
       label: `review:${file}`,
       cwd: process.cwd(),
       prompt: reviewPrompt(file),
+      schema: reviewSchema,
       retries: 1
     });
 
@@ -77,21 +102,7 @@ Rules:
 - Report only actionable bugs, behavioral regressions, security issues, data-loss risks, or missing tests that materially affect correctness.
 - Do not report style preferences.
 - Do not invent line numbers. If unsure, omit the line or use null.
-- Return JSON only.
-
-Return shape:
-{
-  "findings": [
-    {
-      "severity": "low|medium|high",
-      "file": "${file}",
-      "line": 123,
-      "title": "short title",
-      "description": "why this is a real issue",
-      "suggestion": "specific fix or test"
-    }
-  ]
-}
+- Return concrete findings only. Use an empty findings array if there are no real issues.
 `;
 }
 

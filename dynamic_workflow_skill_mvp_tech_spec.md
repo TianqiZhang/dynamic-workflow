@@ -69,6 +69,7 @@ The MVP must support:
 - Agent prompt input via stdin or prompt file.
 - Agent output as text or JSON.
 - Basic JSON extraction/parsing.
+- Lightweight schema validation for machine-consumed agent JSON.
 - Parallel execution with bounded concurrency.
 - Pipeline execution over many items.
 - Optional per-item state persistence for workflows that need item-level resume.
@@ -87,7 +88,7 @@ Do not implement these in the MVP:
 - A web UI or TUI.
 - Distributed workers.
 - Durable database beyond JSON/JSONL files.
-- Full JSON Schema validation library dependency.
+- Full JSON Schema validation library dependency; the runtime should keep a small dependency-free schema subset.
 - Complex sandboxing.
 - Full git worktree management.
 - Automated dependency installation.
@@ -168,7 +169,8 @@ The target repo should contain a configurable agent adapter file:
 {
   "agents": {
     "editor": {
-      "command": "claude -p --output-format json",
+      "command": "claude -p",
+      "jsonCommand": "claude -p --output-format json",
       "input": "stdin",
       "output": "json",
       "timeoutMs": 900000,
@@ -176,7 +178,8 @@ The target repo should contain a configurable agent adapter file:
       "env": {}
     },
     "reviewer": {
-      "command": "claude -p --output-format json",
+      "command": "claude -p",
+      "jsonCommand": "claude -p --output-format json",
       "input": "stdin",
       "output": "json",
       "timeoutMs": 900000,
@@ -184,7 +187,8 @@ The target repo should contain a configurable agent adapter file:
       "env": {}
     },
     "coder": {
-      "command": "claude -p --output-format json",
+      "command": "claude -p",
+      "jsonCommand": "claude -p --output-format json",
       "input": "stdin",
       "output": "json",
       "timeoutMs": 1800000,
@@ -209,6 +213,7 @@ Supported `output` values:
 
 Optional adapter fields:
 
+- `jsonCommand`: optional shell command to use for structured output calls. Use this for local agent CLI JSON flags such as `--json` or `--output-format json`.
 - `timeoutMs`: default timeout for this agent.
 - `inheritEnv`: whether the subprocess inherits the current environment. Default `true` for local CLI compatibility.
 - `env`: extra environment variables to add or override.
@@ -505,6 +510,7 @@ const result = await agent("editor", {
   label,
   prompt,
   cwd,
+  schema,
   timeoutMs,
   retries
 });
@@ -517,6 +523,7 @@ const result = await agent("editor", {
   label: string,
   prompt: string,
   cwd?: string,
+  schema?: object,
   timeoutMs?: number,
   retries?: number
 }
@@ -526,18 +533,20 @@ const result = await agent("editor", {
 
 1. Load `.dynamic-workflows/agents.json`.
 2. Find the named agent.
-3. Write the prompt to `prompts/<safe-label>.md`.
-4. Run the configured command.
-5. If `input` is `stdin`, pass prompt to stdin.
-6. If `input` is `file`, create a prompt file and replace `{promptFile}` in the command string. If the placeholder is missing, throw a configuration error.
-7. Capture stdout and stderr.
-8. Write stdout to `outputs/<safe-label>.stdout.txt`.
-9. Write stderr to `errors/<safe-label>.stderr.txt`.
-10. If output mode is `json`, parse JSON from stdout.
-11. If JSON parsing fails, attempt to extract the first JSON object or array from stdout, choosing whichever valid JSON region appears first by position.
-12. Return parsed JSON or raw text.
+3. If `schema` is provided, append the schema contract to the prompt and use structured output mode.
+4. Write the prompt to `prompts/<safe-label>.md`.
+5. Run `jsonCommand` when structured output mode is active and the adapter provides one; otherwise run `command`.
+6. If `input` is `stdin`, pass prompt to stdin.
+7. If `input` is `file`, create a prompt file and replace `{promptFile}` in the command string. If the placeholder is missing, throw a configuration error.
+8. Capture stdout and stderr.
+9. Write stdout to `outputs/<safe-label>.stdout.txt`.
+10. Write stderr to `errors/<safe-label>.stderr.txt`.
+11. If output mode is `json` or `schema` is provided, parse JSON from stdout.
+12. If JSON parsing fails, attempt to extract the first JSON object or array from stdout, choosing whichever valid JSON region appears first by position.
+13. If `schema` is provided, validate the parsed JSON against the runtime's lightweight schema subset.
+14. Return parsed JSON or raw text.
 
-The MVP does not accept a runtime `schema` option and does not perform JSON Schema validation. Required output shape belongs in the prompt contract. Future versions can add validation with a dependency such as Zod or Ajv.
+Supported schema keywords are `type`, `required`, `properties`, `items`, `enum`, `additionalProperties`, `nullable`, `minItems`, `maxItems`, `minLength`, and `maxLength`. This validates shape only. Workflow code must still compute deterministic facts such as actual changed files, diffs, command exit codes, and parsed metrics.
 
 ### Command parsing
 
@@ -563,11 +572,12 @@ Retry only transient execution failures:
 
 - Non-zero exit code.
 - Timeout.
-- JSON parse or extraction failure when adapter `output` is `json`.
+- JSON parse or extraction failure when adapter `output` is `json` or `schema` is provided.
+- Schema validation failure when `agent(..., { schema })` is used.
 
 Do not retry configuration errors such as a missing agent name, unsupported adapter option, or missing `{promptFile}` placeholder for `input: "file"`.
 
-Between retries, wait with simple linear backoff such as `500ms * attemptNumber`. If more than one attempt occurs, stdout/stderr artifacts should include the attempt number so failed attempts are auditable.
+Between retries, wait with simple linear backoff such as `500ms * attemptNumber`. If more than one attempt occurs, prompt/stdout/stderr artifacts should include the attempt number so failed attempts are auditable.
 
 ### Timeout
 
@@ -588,7 +598,7 @@ Every agent prompt should include:
 3. Allowed actions.
 4. Forbidden actions.
 5. Required output format.
-6. JSON shape when possible.
+6. Semantic payload fields expected by the workflow.
 7. Acceptance criteria.
 
 Example:
@@ -602,17 +612,29 @@ Rules:
 - Preserve Markdown structure.
 - Do not modify code blocks.
 - Do not rewrite style unnecessarily.
-- Return JSON only.
-
-Return shape:
-{
-  "changed": boolean,
-  "correctedText": string,
-  "summary": string
-}
+- Return the corrected full file text and a short summary.
 ```
 
-The runtime does not need full JSON Schema validation in MVP, but the prompt should still provide the expected JSON shape.
+The workflow should pass the machine-readable shape through `agent(..., { schema })`, for example:
+
+```js
+const edit = await agent("editor", {
+  label: "edit:docs/a.md",
+  prompt,
+  schema: {
+    type: "object",
+    required: ["correctedText", "summary"],
+    properties: {
+      correctedText: { type: "string" },
+      summary: { type: "string" }
+    },
+    additionalProperties: false
+  },
+  retries: 1
+});
+```
+
+Schema validation confirms output shape, not truth. The workflow still computes deterministic facts such as whether text changed, actual changed files, command exit codes, diffs, and metrics.
 
 ---
 
@@ -1231,6 +1253,8 @@ The MVP is complete when all of the following are true.
 - `agent()` can call a configured CLI command.
 - `agent()` writes prompt, stdout, and stderr artifacts.
 - `agent()` documents and respects adapter environment settings.
+- `agent()` uses `jsonCommand` for structured output calls when configured.
+- `agent()` validates schema-backed JSON outputs and retries transient validation failures.
 - `agent()` retry behavior is defined and auditable through attempt artifacts.
 - `shell()` can run a command and capture stdout/stderr/exit code.
 - `parallel()` respects concurrency and returns ordered result envelopes.

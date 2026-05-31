@@ -67,6 +67,7 @@ await wf.run(async () => {
     label: "benchmark-optimize-candidate",
     cwd: sandbox,
     timeoutMs: agentTimeoutMs,
+    schema: coderResultSchema(),
     prompt: coderPrompt(copiedPaths, benchmarkCommand, testCommand, baselineMetric, higherIsBetter)
   });
 
@@ -123,7 +124,7 @@ Sandbox rules:
 - Do not commit changes.
 - Do not apply changes to the original repository.
 - Keep the change small and focused.
-- Return JSON only when finished.
+- Return the requested structured result when finished.
 
 Baseline:
 - Benchmark command: ${benchmarkCommand}
@@ -131,12 +132,23 @@ Baseline:
 - Baseline metric: ${baselineMetric}
 - Higher is better: ${higherIsBetter}
 
-Return shape:
-{
-  "summary": "what changed",
-  "filesChanged": ["relative/path"],
-  "risk": "low|medium|high"
-}`;
+Return what changed, the files you believe you changed, and risk.`;
+}
+
+function coderResultSchema() {
+  return {
+    type: "object",
+    required: ["summary", "filesChanged", "risk"],
+    properties: {
+      summary: { type: "string" },
+      filesChanged: {
+        type: "array",
+        items: { type: "string" }
+      },
+      risk: { type: "string", enum: ["low", "medium", "high"] }
+    },
+    additionalProperties: false
+  };
 }
 
 function report(result, tests, candidateBenchmark) {

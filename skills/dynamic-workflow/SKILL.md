@@ -25,7 +25,7 @@ Do not try to complete such tasks directly in the current conversation. Instead,
 5. Use deterministic code for enumeration, batching, state, retries, shell commands, report generation, and acceptance decisions.
 6. Use agents only for fuzzy judgment, editing, summarization, code changes, hypothesis generation, or review.
 7. All agent calls must have explicit input and output contracts.
-8. Prefer JSON output from agents when possible.
+8. Prefer `agent(..., { schema })` for machine-consumed outputs, and configure agent adapters with JSON output flags when the local CLI supports them.
 9. For item-based workflows, persist item status to disk so the workflow can resume.
 10. At the end, summarize from workflow artifacts, not from memory.
 
@@ -39,8 +39,8 @@ The workflow owns the loop. Agents own local reasoning or local edits. The curre
 2. Create `.dynamic-workflows/agents.json` if missing and adapt the commands to the available local agent CLIs.
 3. Pick the closest example from `examples/` and copy it to `.dynamic-workflows/workflows/<task-name>.workflow.mjs`.
 4. Make the workflow enumerate inputs deterministically.
-5. Make each agent prompt specify objective, input, allowed actions, forbidden actions, required output shape, and acceptance criteria.
-6. For information-producing stages, have agents return structured JSON for aggregation or later stages.
+5. Make each agent prompt specify objective, input, allowed actions, forbidden actions, and acceptance criteria; put machine-readable return shape in the `schema` option.
+6. For information-producing stages, have agents return schema-validated JSON for aggregation or later stages.
 7. For direct-edit stages, snapshot first, let the agent edit allowed files in `cwd`, then diff, verify, accept/reject, and restore if needed.
 8. Use `wf.isItemDone(key)` and `wf.markItemDone(key, result)` for resumable item workflows.
 9. Run with `node .dynamic-workflows/workflows/<task-name>.workflow.mjs`.
