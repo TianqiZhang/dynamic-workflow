@@ -22,7 +22,7 @@ Use when objective metrics matter. The workflow records a baseline, creates a sa
 
 ## Auto Research Loop
 
-Use for small experiment loops. An agent proposes a hypothesis and one bounded change, deterministic code applies it in a sandbox, a shell command evaluates it, and the workflow records the result. Keep strategy simple in the MVP.
+Use for small experiment loops. An agent proposes a hypothesis and one bounded change, deterministic code applies it in the current repo or configured working directory, a shell command evaluates it, and the workflow records the result. Accepted changes remain in place so the next iteration can inspect the accumulated state. Rejected or failed changes can be restored from per-iteration snapshots. Keep strategy simple in the MVP.
 
 ## Strategy Self Improvement Future Pattern
 
@@ -40,4 +40,4 @@ Agents may propose edits to strategy modules for the next generation, but the ro
 
 ## Context Boundary Planning
 
-For complex workflows, sketch the context boundary first. Decide each agent's `cwd`, the instruction files it may see, the artifacts it reads, the files it may modify, and whether those modifications can influence later stages. Use sandbox directories when agent writes must not affect the root workflow or original repo.
+For complex workflows, sketch the context boundary first. Decide each agent's `cwd`, the instruction files it may see, the artifacts it reads, the files it may modify, and whether those modifications can influence later stages. Prefer the repo or folder root when full context and cumulative state matter. Use sandbox directories when agent writes must not affect the root workflow or original repo.

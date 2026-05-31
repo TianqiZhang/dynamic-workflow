@@ -70,4 +70,4 @@ For complex workflows, plan context boundaries before coding:
 
 The default agent adapter inherits environment variables for local CLI compatibility. That can expose secrets to subprocesses. Set `inheritEnv: false` in `.dynamic-workflows/agents.json` when a workflow does not need the user's environment; use absolute command paths or provide `PATH` in `env` when environment inheritance is disabled.
 
-Do not let generated workflows run arbitrary destructive commands. For code edits, prefer sandboxed copies, explicit allowed paths, tests, objective metrics, and auditable diffs.
+Do not let generated workflows run arbitrary destructive commands. For code edits, use explicit allowed paths, tests, objective metrics, and auditable diffs. Use sandboxed copies only when isolation is needed; many workflows should run in the repo or folder root so agents can see full context and later iterations can inherit accepted changes.

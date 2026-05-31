@@ -25,6 +25,8 @@ Choose `cwd` deliberately:
 
 The runtime does not infer context. The workflow decides `cwd`, prompt text, artifact paths, and allowed file boundaries.
 
+Sandboxing is optional. For iterative research or broad code work, running agents in the real repo root can be the right default because they can inspect complete context and later iterations can read accepted changes from the working tree. Use sandboxing when isolation matters more than continuity.
+
 ## Prompt Size
 
 Do not paste entire files into prompts by default. If the agent has file-read capability, pass the file path and the rules. Put shared context in files or artifacts that the agent can read. Pass content inline only when the agent command has no file tools, the snippet is small, or the exact text must be frozen as stage input.

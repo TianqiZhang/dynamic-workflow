@@ -22,4 +22,4 @@ Rules:
 
 The MVP runs configured commands through the shell. Treat `.dynamic-workflows/agents.json` and workflow command strings as trusted local code.
 
-For benchmark and research workflows, copy allowed paths into `artifacts/` and run agents with `cwd` set to the sandbox. Never automatically apply sandbox changes to the original repository.
+For benchmark workflows that compare isolated candidates, copying allowed paths into `artifacts/` and running agents with `cwd` set to a sandbox is useful. For research or orchestration workflows that need full context and cumulative state, running in the repo or folder root is often better. In both modes, record artifacts and make the allowed write set explicit.

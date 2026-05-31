@@ -6,7 +6,6 @@ import {
   artifactName,
   createWorkflow,
   diffText,
-  ensureDir,
   formatPercent,
   markdownTable,
   parseBoolean,
@@ -25,6 +24,7 @@ const wf = createWorkflow({
 
 await wf.run(async () => {
   const targetFiles = parseList(process.env.DW_RESEARCH_TARGET_FILES, ["src/index.js"]);
+  const researchCwd = path.resolve(process.env.DW_RESEARCH_CWD ?? process.cwd());
   const evalCommand =
     process.env.DW_RESEARCH_EVAL_COMMAND ??
     'node -e "console.log(JSON.stringify({ metric: 0, higherIsBetter: true }))"';
@@ -33,25 +33,8 @@ await wf.run(async () => {
   const agentTimeoutMs = Number(process.env.DW_AGENT_TIMEOUT_MS ?? 1800000);
   const minImprovementPct = Number(process.env.DW_MIN_IMPROVEMENT_PCT ?? 0);
 
-  const sandbox = path.join(wf.runDir, "artifacts", "research-sandbox");
-  await fs.rm(sandbox, { recursive: true, force: true });
-  await ensureDir(sandbox);
-
-  await Promise.all(
-    targetFiles.map(async (file) => {
-      try {
-        await fs.cp(file, path.join(sandbox, file), { recursive: true });
-      } catch (error) {
-        if (error.code === "ENOENT") {
-          throw new Error(`Configured research target does not exist: ${file}`);
-        }
-        throw error;
-      }
-    })
-  );
-
   const baseline = await shell(evalCommand, {
-    cwd: sandbox,
+    cwd: researchCwd,
     label: "research-baseline",
     json: true,
     timeoutMs: commandTimeoutMs
@@ -64,15 +47,16 @@ await wf.run(async () => {
 
   const records = [];
   for (let iteration = 1; iteration <= iterations; iteration += 1) {
-    const snapshot = await snapshotFiles(sandbox, targetFiles);
+    const snapshot = await snapshotFiles(researchCwd, targetFiles);
     let record;
 
     try {
       const proposal = await agent("coder", {
         label: `research-proposal-${iteration}`,
-        cwd: sandbox,
+        cwd: researchCwd,
         timeoutMs: agentTimeoutMs,
         prompt: proposalPrompt(iteration, targetFiles, {
+          researchCwd,
           evalCommand,
           bestMetric,
           higherIsBetter
@@ -81,12 +65,12 @@ await wf.run(async () => {
 
       validateProposal(proposal, targetFiles);
       const targetFile = proposal.targetFile;
-      const targetPath = path.join(sandbox, targetFile);
+      const targetPath = path.join(researchCwd, targetFile);
       const before = snapshot[targetFile] ?? "";
       await writeText(targetPath, proposal.newText);
 
       const evaluation = await shell(evalCommand, {
-        cwd: sandbox,
+        cwd: researchCwd,
         label: `research-eval-${iteration}`,
         json: true,
         timeoutMs: commandTimeoutMs
@@ -103,7 +87,7 @@ await wf.run(async () => {
       if (accepted) {
         bestMetric = metric;
       } else {
-        await restoreSnapshot(sandbox, snapshot);
+        await restoreSnapshot(researchCwd, snapshot);
       }
 
       record = {
@@ -117,7 +101,7 @@ await wf.run(async () => {
         summary: proposal.summary ?? ""
       };
     } catch (error) {
-      await restoreSnapshot(sandbox, snapshot);
+      await restoreSnapshot(researchCwd, snapshot);
       record = { iteration, status: "failed", error: error.message };
     }
 
@@ -125,7 +109,7 @@ await wf.run(async () => {
     await appendJsonl(path.join(wf.runDir, "artifacts", "experiments.jsonl"), record);
   }
 
-  const summary = { bestMetric, higherIsBetter, iterations: records };
+  const summary = { researchCwd, bestMetric, higherIsBetter, iterations: records };
   await writeJson(path.join(wf.runDir, "artifacts", "research-summary.json"), summary);
   await wf.writeReport(report(summary, evalCommand, targetFiles));
 });
@@ -135,12 +119,14 @@ function proposalPrompt(iteration, targetFiles, context) {
 
 This is iteration ${iteration}. Auto Research is only one pattern built on Dynamic Workflow. Do not edit the workflow or strategy code.
 
-Sandbox rules:
-- Your current working directory is the sandbox.
-- Read the allowed target files from the sandbox paths listed below.
+Workspace rules:
+- Your current working directory is: ${context.researchCwd}
+- You may inspect the repository or folder context from this working directory.
+- Read the allowed target files from the paths listed below.
 - Propose and return one bounded replacement for one allowed target file.
 - Allowed target files: ${targetFiles.join(", ")}
-- Do not modify files directly. Return the new file text in JSON.
+- Do not modify files directly in this MVP example. Return the proposed full replacement text in JSON; the workflow will write accepted candidates.
+- Do not edit workflow/runtime files.
 - Do not commit changes.
 - Return JSON only.
 
@@ -230,6 +216,8 @@ function report(summary, evalCommand, targetFiles) {
   return `# Simple Auto Research Report
 
 - Evaluation command: ${evalCommand}
+- Working directory: ${summary.researchCwd}
+- Mode: in-place cumulative loop
 - Target files: ${targetFiles.join(", ")}
 - Higher is better: ${summary.higherIsBetter}
 - Final best metric: ${summary.bestMetric}
