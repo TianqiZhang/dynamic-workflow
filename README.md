@@ -1,8 +1,8 @@
 # Dynamic Workflow
 
-**Run large AI coding-agent tasks as inspectable JavaScript workflows.** Fan out parallel subagents, persist progress to disk, verify results before accepting, and produce audit-ready reports — with Claude Code, Codex, Pi, or any CLI agent.
+**Run large AI coding-agent tasks as inspectable JavaScript workflows.** Fan out parallel subagents, persist progress to disk, verify results before accepting, and produce audit-ready reports — with Claude Code, Codex, Copilot, Pi, or any CLI agent.
 
-Dynamic workflows move large agentic tasks out of one chat thread and into code. A workflow script owns the loop, state, fan-out, retries, verification, and report generation, while subagents handle local reasoning or local edits. Anthropic [introduced this idea](https://claude.com/blog/introducing-dynamic-workflows-in-claude-code) in Claude Code as a research preview. This repository implements the same core pattern in a portable, vendor-neutral form as a dependency-free Node.js runtime and reusable coding-agent skill.
+Instead of one assistant doing everything sequentially in a single chat, a workflow script fans out work across many subagents, checks results, and writes a report. Inspired by Anthropic's [dynamic workflows in Claude Code](https://claude.com/blog/introducing-dynamic-workflows-in-claude-code), this repo provides a simplified, portable version of the same idea: a dependency-free Node.js runtime and a reusable coding-agent skill that you can copy into any project.
 
 ## What You Can Do With It
 
@@ -264,9 +264,9 @@ The point is not to pretend subagents are perfectly reliable. The point is to ma
 
 ## Relation To Claude Code Dynamic Workflows
 
-Anthropic's [Claude Code dynamic workflows](https://claude.com/blog/introducing-dynamic-workflows-in-claude-code) are a product feature released in research preview on May 28, 2026. This repo is an independent, portable implementation of the same architectural idea — code for control flow, agents for judgment, disk artifacts for state, schemas for machine-consumed outputs, verification before acceptance.
+Anthropic's [Claude Code dynamic workflows](https://claude.com/blog/introducing-dynamic-workflows-in-claude-code) are a product feature released in research preview on May 28, 2026. This repo is a simplified, independent take on the same idea — not a reimplementation of Claude Code's workflow engine.
 
-Use Claude Code's built-in dynamic workflows when you want the native product experience. Use this repo when you want:
+Use Claude Code's built-in dynamic workflows when you want the full product experience. Use this repo when you want:
 
 - a small runtime you can inspect and change
 - workflows that run through any CLI agent, not only Claude
