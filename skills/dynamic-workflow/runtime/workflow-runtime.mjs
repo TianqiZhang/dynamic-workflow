@@ -48,6 +48,11 @@ const BUILTIN_AGENT_PRESETS = {
 
 let currentWorkflow = null;
 
+function log(message) {
+  const ts = new Date().toISOString().slice(11, 19);
+  process.stderr.write(`[${ts}] ${message}\n`);
+}
+
 export function createWorkflow(options = {}) {
   if (!options.name) {
     throw new Error("createWorkflow requires a workflow name");
@@ -94,15 +99,18 @@ export function createWorkflow(options = {}) {
       currentWorkflow = this;
 
       await this.event("run_started", { runId, name: this.name, cwd: process.cwd() });
+      log(`workflow "${this.name}" started (concurrency=${this.concurrency}, resume=${this.resume})`);
 
       try {
         const result = await fn(this);
         await this._stateWriteChain;
         await this.event("run_completed", { runId });
+        log(`workflow "${this.name}" completed`);
         return result;
       } catch (error) {
         await this._stateWriteChain.catch(() => {});
         await this.event("run_failed", { runId, error: serializeError(error) });
+        log(`workflow "${this.name}" failed: ${error.message ?? errorToString(error)}`);
         throw error;
       } finally {
         this._agentsConfig = null;
@@ -154,6 +162,7 @@ export function createWorkflow(options = {}) {
       const reportPath = path.join(this.runDir, "report.md");
       await writeText(reportPath, ensureTrailingNewline(markdown));
       await this.event("report_written", { path: reportPath });
+      log(`report written to ${reportPath}`);
       return reportPath;
     }
   };
@@ -246,6 +255,7 @@ export async function agent(agentName, options = {}) {
       structuredOutput,
       schema: hasSchema
     });
+    log(`agent ${label} started${maxAttempts > 1 ? ` (attempt ${attempt}/${maxAttempts})` : ""}`);
 
     try {
       const result = await runCommand(command, {
@@ -327,16 +337,19 @@ export async function agent(agentName, options = {}) {
         attempt,
         durationMs: Date.now() - started
       });
+      log(`agent ${label} completed (${((Date.now() - started) / 1000).toFixed(1)}s)`);
       return value;
     } catch (error) {
       lastError = error;
+      const durationMs = Date.now() - started;
       await workflow.event("agent_failed", {
         agent: agentName,
         label,
         attempt,
-        durationMs: Date.now() - started,
+        durationMs,
         error: serializeError(error)
       });
+      log(`agent ${label} failed (${(durationMs / 1000).toFixed(1)}s): ${error.message ?? errorToString(error)}`);
 
       if (!error.transient || attempt === maxAttempts) {
         throw error;
