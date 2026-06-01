@@ -20,7 +20,7 @@ Do not try to complete such tasks directly in the current conversation. Instead,
 
 1. Create `.dynamic-workflows/` in the current repo if it does not exist.
 2. Copy or create the minimal runtime at `.dynamic-workflows/runtime/workflow-runtime.mjs`.
-3. Create `.dynamic-workflows/agents.json` if missing.
+3. Create `.dynamic-workflows/agents.json` if missing. Ask the user which agent CLI to use before writing the config.
 4. Write a task-specific workflow under `.dynamic-workflows/workflows/`.
 5. Use deterministic code for enumeration, batching, state, retries, shell commands, report generation, and acceptance decisions.
 6. Use agents only for fuzzy judgment, editing, summarization, code changes, hypothesis generation, or review.
@@ -36,7 +36,7 @@ The workflow owns the loop. Agents own local reasoning or local edits. The curre
 ## Default Implementation Sequence
 
 1. Copy `runtime/workflow-runtime.mjs` into `.dynamic-workflows/runtime/workflow-runtime.mjs`.
-2. Create `.dynamic-workflows/agents.json` if missing. Prefer built-in presets (`claude`, `codex`, `pi`) when they fit, and override commands only when local CLI flags differ.
+2. Create `.dynamic-workflows/agents.json` if missing. **Ask the user which agent CLI they want to use** (`claude`, `codex`, `pi`, or a custom command) before picking a preset. Do not assume a specific CLI is available. Override commands only when local CLI flags differ.
 3. Pick the closest example from `examples/` and copy it to `.dynamic-workflows/workflows/<task-name>.workflow.mjs`.
 4. Make the workflow enumerate inputs deterministically.
 5. Make each agent prompt specify objective, input, allowed actions, forbidden actions, and acceptance criteria; put machine-readable return shape in the `schema` option.
