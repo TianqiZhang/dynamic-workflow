@@ -1352,7 +1352,12 @@ function errorToString(error) {
 }
 
 function shellQuote(value) {
-  return `'${String(value).replace(/'/g, "'\\''")}'`;
+  const s = String(value);
+  if (os.platform() === "win32") {
+    // cmd.exe uses double quotes; escape inner double quotes with backslash
+    return `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+  }
+  return `'${s.replace(/'/g, "'\\''")}'`;
 }
 
 function toPosixPath(filePath) {
