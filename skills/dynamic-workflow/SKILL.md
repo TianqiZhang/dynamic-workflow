@@ -1,6 +1,6 @@
 ---
 name: dynamic-workflow
-description: Use when a task is too large, repetitive, parallelizable, long-running, or verification-heavy to complete directly in the current chat. Create code-based workflows that call CLI agents, keep state on disk, and resume safely.
+description: Use when a task is too large, repetitive, parallelizable, long-running, or verification-heavy to complete directly in the current chat. Create reusable code-based workflows that call CLI agents, keep state on disk, and resume safely.
 ---
 
 # Dynamic Workflow Skill
