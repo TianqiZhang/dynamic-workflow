@@ -133,6 +133,8 @@ Use `output: "codex-json"` for `codex exec --json` event streams. The runtime re
 
 Use `output: "claude-json"` for `claude -p --output-format json`. The runtime returns `structured_output` when present, otherwise `result`.
 
+The `copilot` preset uses `copilot -p -s` and is text-first by default. Override `jsonCommand` or `schemaCommand` in `.dynamic-workflows/agents.json` if you need a different structured-output wrapper.
+
 Supported schema keywords are intentionally small: `type`, `required`, `properties`, `items`, `enum`, `additionalProperties`, `nullable`, `minItems`, `maxItems`, `minLength`, and `maxLength`. `type` may be a string or an array of strings. This validates shape only; workflows should still compute deterministic facts such as changed files, diffs, command exit codes, and parsed metrics themselves.
 
 The MVP runs command strings through the shell. Treat adapter commands as trusted local configuration, not untrusted user input.

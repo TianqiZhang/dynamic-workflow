@@ -54,6 +54,8 @@ The workflow owns the loop. Agents own local reasoning or local edits. The curre
 9. Run with `node .dynamic-workflows/workflows/<task-name>.workflow.mjs`.
 10. Inspect `.dynamic-workflows/runs/<task-name>/report.md`, `events.jsonl`, and artifacts before summarizing.
 
+Built-in presets supported by the runtime: `claude`, `codex`, `copilot`, and `pi`.
+
 ## References
 
 Read these before writing a workflow:

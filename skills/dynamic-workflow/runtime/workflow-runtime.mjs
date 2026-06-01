@@ -28,6 +28,14 @@ const BUILTIN_AGENT_PRESETS = {
     inheritEnv: true,
     env: {}
   },
+  copilot: {
+    command: "copilot -p -s",
+    input: "stdin",
+    output: "text",
+    timeoutMs: DEFAULT_AGENT_TIMEOUT_MS,
+    inheritEnv: true,
+    env: {}
+  },
   pi: {
     command: "pi -p",
     input: "stdin",

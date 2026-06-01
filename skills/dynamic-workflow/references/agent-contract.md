@@ -157,6 +157,7 @@ Agent subprocesses are configured in `.dynamic-workflows/agents.json`:
   "agents": {
     "editor": { "preset": "claude" },
     "reviewer": { "preset": "codex" },
+    "copilot-editor": { "preset": "copilot" },
     "coder": { "preset": "pi", "timeoutMs": 1800000 }
   }
 }
@@ -180,6 +181,7 @@ Preset behavior:
 
 - `claude` uses `claude -p`; structured calls use `--output-format json`, and schema calls use `--json-schema`.
 - `codex` uses `codex exec --ephemeral --skip-git-repo-check -s read-only -`; structured calls add `--json`, and the runtime extracts the final `agent_message` from the JSONL event stream.
+- `copilot` uses `copilot -p -s`; it is text-first by default, and you can override `jsonCommand` or `schemaCommand` in `.dynamic-workflows/agents.json` if you need a different structured-output wrapper.
 - `pi` uses `pi -p`; schema calls rely on the runtime's prompt contract and validation because Pi print mode returns plain text.
 
 `inheritEnv: true` is convenient for local CLIs, but it may expose secrets to subprocesses. Set it to `false` unless the agent command needs the current environment. When inheritance is disabled, use absolute command paths or provide `PATH` in `env`.

@@ -130,14 +130,15 @@ All state lives on disk — `run.json`, `events.jsonl`, `items.json`, prompts, o
 
 ## Built-In Agent Presets
 
-Agents are configured in a target repo at `.dynamic-workflows/agents.json`.
+Agents are configured in a target repo at `.dynamic-workflows/agents.json`. The snippet below is an example only; map the names to your own workflow roles.
 
 ```json
 {
   "agents": {
-    "editor": { "preset": "claude" },
-    "reviewer": { "preset": "codex" },
-    "coder": { "preset": "pi", "timeoutMs": 1800000 }
+    "primary": { "preset": "claude" },
+    "secondary": { "preset": "codex" },
+    "assistant": { "preset": "copilot" },
+    "builder": { "preset": "pi", "timeoutMs": 1800000 }
   }
 }
 ```
@@ -146,6 +147,7 @@ Supported presets:
 
 - `claude`: uses `claude -p`; structured calls use `--output-format json`; schema calls use `--json-schema`.
 - `codex`: uses `codex exec`; structured calls use `--json`; the runtime extracts the final `agent_message` from Codex JSONL events.
+- `copilot`: uses `copilot -p -s`; it is text-first by default, and you can override `jsonCommand` or `schemaCommand` in `.dynamic-workflows/agents.json` if you need a different structured-output wrapper.
 - `pi`: uses `pi -p`; schema calls rely on the prompt contract plus runtime validation.
 
 Any preset can be overridden:
