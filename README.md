@@ -1,36 +1,107 @@
 # Dynamic Workflow
 
-A small, inspectable implementation of the dynamic workflow pattern for local coding agents.
+**Run large AI coding-agent tasks as inspectable JavaScript workflows.** Fan out parallel subagents, persist progress to disk, verify results before accepting, and produce audit-ready reports — with Claude Code, Codex, Pi, or any CLI agent.
 
-Dynamic workflows are a way to move large agentic tasks out of one chat thread and into code: a workflow script owns the loop, state, fan-out, retries, verification, and report generation, while subagents handle local reasoning or local edits. Anthropic recently introduced this idea in Claude Code as a research preview: Claude can write orchestration scripts, fan work out across many parallel subagents, verify results, and persist progress outside the main conversation.
+Dynamic workflows move large agentic tasks out of one chat thread and into code. A workflow script owns the loop, state, fan-out, retries, verification, and report generation, while subagents handle local reasoning or local edits. Anthropic [introduced this idea](https://claude.com/blog/introducing-dynamic-workflows-in-claude-code) in Claude Code as a research preview. This repository implements the same core pattern in a portable, vendor-neutral form as a dependency-free Node.js runtime and reusable coding-agent skill.
 
-This repository explores the same core pattern in a portable form. It is not an official Anthropic implementation. It is a Codex/Claude/Pi-friendly skill plus a dependency-free Node.js runtime that can be copied into a target repo and adapted by a coding agent.
+## What You Can Do With It
 
-## Why This Exists
+- **Codebase-wide bug hunts** — review every source file in parallel, aggregate findings by severity
+- **Docs proofreading at scale** — editor agent proposes fixes, reviewer agent accepts or rejects, workflow writes changes
+- **Benchmark-guided optimization** — sandbox a candidate change, run tests + benchmarks, accept only if metrics improve
+- **Security and correctness sweeps** — structured findings across hundreds of files with schema-validated output
+- **Iterative experiment loops** — propose a hypothesis, edit code, evaluate, keep or rollback, repeat
+- **Large migrations** — enumerate files, apply changes per file, verify, resume from where you left off
 
-Single-chat agents are awkward for work that has hundreds of items, long loops, repeated verification, or too much intermediate state. They either overload context, lose track of decisions after compaction, or force the human to manually coordinate each step.
+## Quick Start
 
-Dynamic workflow flips the shape:
+Install the skill:
 
-```text
-current chat
-  creates, starts, monitors, summarizes
-
-workflow script
-  enumerates work, manages state, runs commands, calls agents, verifies, reports
-
-subagents
-  do bounded reasoning, review, editing, summarization, or coding tasks
+```bash
+npx skills add TianqiZhang/dynamic-workflow
 ```
 
-The workflow owns the control flow. Agents own fuzzy judgment and local changes.
+Or manually copy the `skills/dynamic-workflow/` folder into your local skills directory.
+
+Once installed, ask your coding agent to create a workflow for your task. The agent reads `SKILL.md`, copies the runtime and a matching example into your repo under `.dynamic-workflows/`, configures `agents.json`, and runs the workflow. For example:
+
+> "Proofread all Markdown files in docs/ using a dynamic workflow."
+
+The agent will set up and run the workflow, then summarize the results from the generated artifacts.
+
+After a run completes, the artifact tree looks like:
+
+```text
+.dynamic-workflows/runs/proofread-directory/
+  run.json                          # run metadata (id, timestamps, cwd)
+  events.jsonl                      # every agent call, shell command, and state change
+  items.json                        # per-file status for resume
+  report.md                         # human-readable summary (example below)
+  prompts/                          # exact prompt sent to each agent
+  outputs/                          # raw stdout from each agent
+  errors/                           # stderr captures
+  diffs/                            # proposed and accepted diffs per file
+  artifacts/proposals/              # full proposed text before review
+```
+
+<details>
+<summary><b>Example report output</b></summary>
+
+```markdown
+# Proofread Directory Report
+
+- Total files: 12
+- Updated: 4
+- Unchanged: 6
+- Rejected: 1
+- Failed: 1
+
+## Updated Files
+
+| File              | Summary                              |
+|-------------------|--------------------------------------|
+| docs/getting-started.md | Fixed 3 typos, corrected grammar |
+| docs/api-reference.md   | Removed duplicate sentence       |
+| docs/faq.md             | Fixed broken Markdown link       |
+| docs/changelog.md       | Corrected date format            |
+
+## Rejected Files
+
+| File          | Reason                                    |
+|---------------|-------------------------------------------|
+| docs/style.md | Edit rewrote tone beyond proofreading scope |
+```
+
+</details>
+
+## How It Works
+
+```text
+┌─────────────────┐
+│   current chat   │  creates, starts, monitors, summarizes
+└────────┬────────┘
+         │
+┌────────▼────────┐
+│  workflow script │  enumerates work, manages state, runs commands,
+│    (your .mjs)   │  calls agents, verifies, writes reports
+└────────┬────────┘
+         │  fan-out with bounded concurrency
+   ┌─────┼─────┬─────┐
+   ▼     ▼     ▼     ▼
+┌──────┐┌──────┐┌──────┐┌──────┐
+│agent ││agent ││agent ││agent │  bounded reasoning, review,
+│  1   ││  2   ││  3   ││  N   │  editing, or coding tasks
+└──────┘└──────┘└──────┘└──────┘
+```
+
+**Code owns orchestration.** Deterministic JavaScript handles enumeration, batching, concurrency, state, shell commands, diffs, metrics, and reports. **Agents own judgment.** Subagents handle proofreading, reviewing, proposing changes, summarizing, or coding — one bounded task at a time.
 
 ## What Is In This Repo
 
 ```text
 skills/dynamic-workflow/
   SKILL.md                         # Instructions for a coding agent
-  runtime/workflow-runtime.mjs     # Dependency-free Node.js runtime
+  runtime/workflow-runtime.mjs     # Dependency-free Node.js runtime (~900 lines)
   examples/
     proofread-directory.workflow.mjs
     review-codebase.workflow.mjs
@@ -44,102 +115,18 @@ skills/dynamic-workflow/
     safety-and-isolation.md
     when-to-use.md
 
-dynamic_workflow_skill_mvp_tech_spec.md
+dynamic_workflow_skill_mvp_tech_spec.md   # Full design spec
 ```
 
 This is a skill package, not a polished CLI product. A coding agent reads the skill, copies the runtime and an example workflow into a target repo, configures local agent commands, runs the workflow, and summarizes the generated artifacts.
 
 ## Core Ideas
 
-### 1. Code Owns Orchestration
+Every agent call defines a **contract**: `cwd` (where the agent starts), a prompt (objective, allowed/forbidden actions, acceptance criteria), and an optional `schema` (machine-readable output shape). Schema validation checks shape, not truth — the workflow still computes deterministic facts like diffs, exit codes, and metrics itself.
 
-Use deterministic JavaScript for:
+For **information-producing stages** (review findings, classifications, summaries), agents return schema-validated JSON that the workflow aggregates. For **file-producing stages** (code changes, refactors, optimization), agents edit files directly while the workflow snapshots before, diffs after, runs tests, and accepts or restores.
 
-- enumerating files, tests, modules, issues, candidates, or URLs
-- batching and bounded concurrency
-- resumable item state
-- shell commands
-- diff generation
-- metrics and acceptance checks
-- artifact and report writing
-
-Use agents for:
-
-- proofreading one file
-- reviewing one module
-- proposing or applying one bounded code change
-- summarizing one result
-- generating a hypothesis
-- judging whether a proposed change should be accepted
-
-### 2. Agent Calls Have Contracts
-
-Every agent call should define:
-
-- `cwd`: where the agent starts and what context it naturally sees
-- prompt: objective, paths, allowed actions, forbidden actions, acceptance criteria
-- `schema`: machine-readable output shape when the workflow needs to consume the result
-
-Example:
-
-```js
-const result = await agent("reviewer", {
-  label: `review:${file}`,
-  cwd: process.cwd(),
-  prompt: `Review ${file} for concrete correctness issues. Do not edit files.`,
-  schema: {
-    type: "object",
-    required: ["findings"],
-    properties: {
-      findings: {
-        type: "array",
-        items: {
-          type: "object",
-          required: ["severity", "file", "title", "description", "suggestion"],
-          properties: {
-            severity: { type: "string", enum: ["low", "medium", "high"] },
-            file: { type: "string" },
-            line: { type: ["integer", "null"] },
-            title: { type: "string" },
-            description: { type: "string" },
-            suggestion: { type: "string" }
-          },
-          additionalProperties: false
-        }
-      }
-    },
-    additionalProperties: false
-  }
-});
-```
-
-Schema validation checks shape, not truth. The workflow should still compute deterministic facts itself: actual changed files, diffs, command exit codes, parsed metrics, report counts, and whether text changed.
-
-### 3. Direct Edits Are Fine When The Stage Produces Files
-
-For code changes, refactors, optimization, and research loops, it is often less fragile to let the subagent edit files directly. The workflow should snapshot first, run the agent in a deliberate `cwd`, compute diffs after, run tests or metrics, and accept or restore.
-
-For information-producing stages, structured output is better: findings, classifications, summaries, plans, review decisions, and extracted fields should be returned as JSON and aggregated by the workflow.
-
-### 4. State Lives On Disk
-
-Workflow runs write to:
-
-```text
-.dynamic-workflows/runs/<workflow-name>/
-  run.json
-  events.jsonl
-  items.json
-  report.md
-  prompts/
-  outputs/
-  errors/
-  shell/
-  diffs/
-  artifacts/
-```
-
-This makes long-running work auditable and resumable. The chat does not need to remember hundreds of intermediate outputs.
+All state lives on disk — `run.json`, `events.jsonl`, `items.json`, prompts, outputs, diffs, and artifacts — making long-running work auditable and resumable without relying on chat memory.
 
 ## Built-In Agent Presets
 
@@ -180,81 +167,12 @@ By default, adapters inherit the local environment for CLI compatibility. That i
 
 ## Example Workflows
 
-### Proofread Directory
-
-Maps over Markdown/text files. An editor agent proposes corrected full text; a reviewer agent accepts or rejects; the workflow writes accepted changes and produces a report.
-
-Good for:
-
-- docs cleanup
-- style-preserving proofreading
-- large folders of Markdown files
-
-### Review Codebase
-
-Maps over source files. A reviewer agent returns structured findings; the workflow aggregates by severity.
-
-Good for:
-
-- broad bug hunts
-- security or correctness sweeps
-- missing-test audits
-
-### Benchmark Optimize
-
-Copies target paths to a sandbox, asks a coder agent for one optimization candidate, runs tests and benchmarks, computes improvement, and writes a candidate diff.
-
-Good for:
-
-- objective performance experiments
-- isolated candidate evaluation
-- code changes that should not touch the original repo until accepted
-
-### Auto Research Simple
-
-Runs an in-place experiment loop. A coder agent edits allowed target files directly, a shell command evaluates the result, accepted changes remain for later iterations, and rejected changes are restored from snapshots.
-
-Good for:
-
-- iterative prompt/heuristic/code experiments
-- small optimization loops
-- cases where later iterations should see previous accepted changes
-
-## Quick Start
-
-In a target repository:
-
-```bash
-mkdir -p .dynamic-workflows/runtime .dynamic-workflows/workflows
-cp /path/to/dynamic-workflow/skills/dynamic-workflow/runtime/workflow-runtime.mjs \
-  .dynamic-workflows/runtime/workflow-runtime.mjs
-cp /path/to/dynamic-workflow/skills/dynamic-workflow/examples/proofread-directory.workflow.mjs \
-  .dynamic-workflows/workflows/proofread-directory.workflow.mjs
-```
-
-Create `.dynamic-workflows/agents.json`:
-
-```json
-{
-  "agents": {
-    "editor": { "preset": "codex" },
-    "reviewer": { "preset": "codex" }
-  }
-}
-```
-
-Run:
-
-```bash
-DW_PROOFREAD_ROOT=docs node .dynamic-workflows/workflows/proofread-directory.workflow.mjs
-```
-
-Inspect:
-
-```bash
-sed -n '1,160p' .dynamic-workflows/runs/proofread-directory/report.md
-sed -n '1,20p' .dynamic-workflows/runs/proofread-directory/events.jsonl
-```
+| Workflow | Pattern | What It Does |
+|----------|---------|-------------|
+| **Proofread Directory** | map → review → write | Editor agent proposes fixes per file, reviewer accepts/rejects, workflow writes changes and produces a report |
+| **Review Codebase** | map → aggregate | Reviewer agent returns structured findings per source file, workflow aggregates by severity |
+| **Benchmark Optimize** | sandbox → optimize → measure | Copies code to sandbox, coder agent optimizes, tests + benchmarks gate acceptance |
+| **Auto Research Simple** | loop → edit → evaluate → keep/rollback | Coder agent edits target files, eval command scores the result, accepted changes accumulate |
 
 ## Minimal Workflow Shape
 
@@ -342,25 +260,11 @@ This runtime intentionally keeps safety explicit rather than magical:
 
 The point is not to pretend subagents are perfectly reliable. The point is to make the orchestration auditable and to compute the facts that can be computed.
 
-## Relation To Anthropic Dynamic Workflows
+## Relation To Claude Code Dynamic Workflows
 
-Anthropic's Claude Code dynamic workflows are a product feature released in research preview on May 28, 2026. Anthropic describes them as Claude dynamically writing orchestration scripts, fanning work out across tens to hundreds of parallel subagents, checking work, saving progress, and coordinating results outside the conversation.
+Anthropic's [Claude Code dynamic workflows](https://claude.com/blog/introducing-dynamic-workflows-in-claude-code) are a product feature released in research preview on May 28, 2026. This repo is an independent, portable implementation of the same architectural idea — code for control flow, agents for judgment, disk artifacts for state, schemas for machine-consumed outputs, verification before acceptance.
 
-This repo is an independent, small implementation of the same architectural idea:
-
-- code for control flow
-- agents for judgment and edits
-- disk artifacts for state
-- schemas for machine-consumed outputs
-- verification before acceptance
-
-It is intentionally vendor-neutral. It can call Claude, Codex, Pi, or any CLI agent that can read a prompt and produce text or JSON.
-
-## Why Not Just Use Built-In Claude Workflows?
-
-Use Claude Code's built-in dynamic workflows when you want the native product experience.
-
-Use this repo when you want:
+Use Claude Code's built-in dynamic workflows when you want the native product experience. Use this repo when you want:
 
 - a small runtime you can inspect and change
 - workflows that run through any CLI agent, not only Claude
@@ -371,31 +275,27 @@ Use this repo when you want:
 
 The goal is not to compete with Claude Code. The goal is to make the pattern concrete, portable, and easy to reason about.
 
-## Current Status
+## Status
 
-MVP / research code.
+Early preview. The runtime and all four example workflows are functional and tested against real agent CLIs.
 
-Implemented:
+**Implemented:**
 
-- dependency-free Node.js runtime
-- stable run directories
-- event logs and artifacts
-- item state and resume helpers
-- bounded `parallel()` and `pipeline()`
-- shell command execution
-- CLI agent adapters
-- built-in `claude`, `codex`, and `pi` presets
-- lightweight schema validation
-- example workflows for proofreading, review, benchmark optimization, and auto research
+- Dependency-free Node.js ESM runtime (~900 lines)
+- Stable run directories with event logs and artifacts
+- Item state and resume helpers
+- Bounded `parallel()` and `pipeline()`
+- Shell command execution with JSON parsing
+- CLI agent adapters with built-in `claude`, `codex`, and `pi` presets
+- Lightweight schema validation
+- Four example workflows: proofread, review, benchmark, auto-research
 
-Not implemented:
+**Not yet implemented:**
 
-- standalone CLI
-- distributed workers
-- durable database
-- full JSON Schema
-- provider SDKs
-- token/cost accounting
+- Standalone CLI
+- Distributed workers
+- Full JSON Schema validation
+- Provider SDKs / token accounting
 - UI
 
 ## Further Reading
