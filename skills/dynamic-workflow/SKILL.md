@@ -29,6 +29,14 @@ Do not try to complete such tasks directly in the current conversation. Instead,
 9. For item-based workflows, persist item status to disk so the workflow can resume.
 10. At the end, summarize from workflow artifacts, not from memory.
 
+## Before Creating a Workflow
+
+Ask the user these questions before writing any workflow code. Skip questions whose answers are already clear from the user's request.
+
+1. **Which agent CLI?** — `claude`, `codex`, `pi`, or a custom command. Do not assume one is available.
+2. **What is the target scope?** — Which directories, file extensions, or items to process. Ask only when the user's request is ambiguous (e.g., "review the codebase" without specifying where).
+3. **What test or eval command to run?** — Required for benchmark, optimization, and research workflows. Not needed for read-only review or proofreading.
+
 ## Key Principle
 
 The workflow owns the loop. Agents own local reasoning or local edits. The current chat session only creates, starts, monitors, and summarizes the workflow.
@@ -36,7 +44,7 @@ The workflow owns the loop. Agents own local reasoning or local edits. The curre
 ## Default Implementation Sequence
 
 1. Copy `runtime/workflow-runtime.mjs` into `.dynamic-workflows/runtime/workflow-runtime.mjs`.
-2. Create `.dynamic-workflows/agents.json` if missing. **Ask the user which agent CLI they want to use** (`claude`, `codex`, `pi`, or a custom command) before picking a preset. Do not assume a specific CLI is available. Override commands only when local CLI flags differ.
+2. Create `.dynamic-workflows/agents.json` if missing, using the agent CLI the user chose. Override commands only when local CLI flags differ.
 3. Pick the closest example from `examples/` and copy it to `.dynamic-workflows/workflows/<task-name>.workflow.mjs`.
 4. Make the workflow enumerate inputs deterministically.
 5. Make each agent prompt specify objective, input, allowed actions, forbidden actions, and acceptance criteria; put machine-readable return shape in the `schema` option.
